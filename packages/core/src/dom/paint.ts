@@ -13,7 +13,7 @@
  * overhangs it by the avatar's reach and ignores the pointer.
  */
 import { avatarExtent } from '../render.ts';
-import type { AvatarFrame, EyeMark, FramePath, Matrix } from '../render.ts';
+import type { AvatarFrame, EyeGloss, EyeMark, EyeSpotlight, FramePath, Matrix } from '../render.ts';
 import type { AvatarDefinition } from '../types.ts';
 
 /** A square in viewBox units. */
@@ -129,6 +129,28 @@ function eyeBox(mark: EyeMark): FramePath['box'] {
   return { x, y, w: Math.max(...xs) + reach - x, h: Math.max(...ys) + reach - y };
 }
 
+/** One of an eye's lights or its shadow, left as the fill style's own color at this opacity. */
+function spot(ctx: CanvasRenderingContext2D, s: EyeSpotlight, color: string) {
+  if (s.opacity <= 0.005) return;
+  ctx.fillStyle = color;
+  ctx.globalAlpha = s.opacity;
+  ctx.beginPath();
+  ctx.ellipse(s.cx, s.cy, s.rx, s.ry, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.globalAlpha = 1;
+}
+
+/** An eye with its depth: the shadow it sits in, the eye in `ink`, then the light on it. */
+function glossyEye(ctx: CanvasRenderingContext2D, mark: EyeMark, gloss: EyeGloss | undefined, ink: string, socket = true) {
+  if (gloss && socket) spot(ctx, gloss.socket, '#000');
+  ctx.fillStyle = ink;
+  eye(ctx, mark);
+  if (!gloss) return;
+  spot(ctx, gloss.sheen, '#fff');
+  spot(ctx, gloss.glint, '#fff');
+  spot(ctx, gloss.spark, '#fff');
+}
+
 function eye(ctx: CanvasRenderingContext2D, mark: EyeMark) {
   if (mark.shape === 'path') {
     ctx.fill(new Path2D(mark.d));
@@ -139,18 +161,12 @@ function eye(ctx: CanvasRenderingContext2D, mark: EyeMark) {
     ctx.stroke(new Path2D(mark.d));
     return;
   }
-  const { x, y, width: w, height: h, radius: r } = mark;
+  const { x, y, width: w, height: h, radius: rx, radiusY: ry } = mark;
   ctx.beginPath();
-  if (typeof ctx.roundRect === 'function') ctx.roundRect(x, y, w, h, r);
-  else {
-    // Safari before 16 and Firefox before 112.
-    ctx.moveTo(x + r, y);
-    ctx.arcTo(x + w, y, x + w, y + h, r);
-    ctx.arcTo(x + w, y + h, x, y + h, r);
-    ctx.arcTo(x, y + h, x, y, r);
-    ctx.arcTo(x, y, x + w, y, r);
-    ctx.closePath();
-  }
+  // An oval: a round rect whose corners take up the whole box, or an ellipse where there is none
+  // (Safari before 16 and Firefox before 112).
+  if (typeof ctx.roundRect === 'function') ctx.roundRect(x, y, w, h, [{ x: rx, y: ry }]);
+  else ctx.ellipse(x + w / 2, y + h / 2, rx, ry, 0, 0, Math.PI * 2);
   ctx.fill();
 }
 
@@ -224,8 +240,7 @@ export function paintCanvas(surface: CanvasSurface, frame: AvatarFrame, size: nu
       if (want !== current) ctx.fillStyle = current = want;
       ctx.fill(section.path, section.rule);
     } else if (shape.kind === 'eye') {
-      ctx.fillStyle = ink;
-      eye(ctx, shape.mark);
+      glossyEye(ctx, shape.mark, shape.gloss, ink);
       ctx.fillStyle = current = fill;
     } else {
       const g = shape.gradient;
@@ -295,7 +310,7 @@ export function paintCanvas(surface: CanvasSurface, frame: AvatarFrame, size: nu
         const shape = frame.shapes[i], m = matrices[i];
         if (shape.kind !== 'eye') continue;
         ctx.setTransform(scale * m[0], scale * m[1], scale * m[2], scale * m[3], scale * m[4] - surface.left, scale * m[5] - surface.top);
-        eye(ctx, shape.mark);
+        glossyEye(ctx, shape.mark, shape.gloss, ink, false);
       }
       ctx.globalCompositeOperation = 'source-atop';
     }

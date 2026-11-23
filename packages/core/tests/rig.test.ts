@@ -60,9 +60,31 @@ describe('rig', () => {
   it('keeps its proportions: no deeper than natural, with a trunk flatter than it is wide', () => {
     expect(renderAvatarSvg(scout, { depth: 14, reducedMotion: true })).toBe(renderAvatarSvg(scout, { depth: 6, reducedMotion: true }));
     const { parts } = buildVolume(scout);
-    const head = parts[0], torso = parts[2];
+    const head = parts[0], torso = parts[1];
     expect(head.depth).toBeCloseTo(head.thickness, 0);
-    expect(torso.depth).toBeLessThan(0.75 * (torso.bounds.maxX - torso.bounds.minX));
+    const across = torso.bounds.maxX - torso.bounds.minX;
+    expect(torso.depth).toBeLessThan(0.9 * across);
+    expect(torso.depth).toBeGreaterThan(0.8 * across);
+  });
+
+  it('never stretches a round part past its width, with or without a rig', () => {
+    const trophy = JSON.parse(readFileSync(new URL('../../../gallery/trophy.json', import.meta.url), 'utf8')) as AvatarDefinition;
+    const round = (volume: number) => buildVolume(trophy, volume).parts.filter((part) => part.kind !== 'inflate');
+    expect(round(14 / 6).length).toBeGreaterThan(0);
+    for (const part of round(14 / 6)) expect(part.depth).toBeCloseTo(part.thickness, 5);
+    // Less volume still flattens it, and parts that are not round still deepen.
+    for (const part of round(0.5)) expect(part.depth).toBeCloseTo(part.thickness / 2, 5);
+    const slab = (volume: number) => buildVolume(box as AvatarDefinition, volume).parts[0].depth;
+    expect(slab(10 / 6)).toBeGreaterThan(slab(1));
+  });
+
+  it('shades each part by its own depth as well as the body\'s, so a limb has a rim of its own', () => {
+    const frame = avatarFrame(scout, { shading: 1, reducedMotion: true });
+    const fills = (part: number) => new Set(frame.shapes.flatMap((shape) => (shape.kind === 'slice' && shape.key.startsWith(`${part}z`) && shape.fill ? [shape.fill] : [])));
+    // An upper arm is thin: within the whole body's depth it would be nearly one shade.
+    expect(fills(2).size).toBeGreaterThan(4);
+    // The same frame again is the same shades: nothing depends on the order shapes are painted in.
+    expect(avatarFrame(scout, { shading: 1, reducedMotion: true })).toEqual(frame);
   });
 
   it('draws a different frame for each state, at rest too', () => {

@@ -19,7 +19,7 @@ beforeAll(() => {
     const rec: Recorder = { calls: [] };
     recorders.set(this, rec);
     const ctx: Record<string, unknown> = { fillStyle: '#000', strokeStyle: '#000', lineWidth: 1, lineCap: 'butt' };
-    for (const op of ['setTransform', 'clearRect', 'fill', 'stroke', 'beginPath', 'moveTo', 'arcTo', 'closePath']) {
+    for (const op of ['setTransform', 'clearRect', 'fill', 'stroke', 'beginPath', 'moveTo', 'arcTo', 'closePath', 'ellipse']) {
       ctx[op] = () => rec.calls.push({ op, fill: String(ctx.fillStyle), stroke: String(ctx.strokeStyle) });
     }
     if (withRoundRect) ctx.roundRect = () => rec.calls.push({ op: 'roundRect', fill: String(ctx.fillStyle), stroke: String(ctx.strokeStyle) });
@@ -106,12 +106,19 @@ describe('mountAvatar on a canvas', () => {
     avatar.destroy();
   });
 
-  it('draws pill eyes without roundRect', async () => {
+  it('draws oval eyes without roundRect, and their shadow and lights either way', async () => {
+    const ovals = async () => {
+      const el = host();
+      const avatar = mountAvatar(el, { definition: examples[0], reducedMotion: true });
+      await frame();
+      const count = painted(el).filter((c) => c.op === 'ellipse').length;
+      avatar.destroy();
+      return count;
+    };
+    // Per eye: the socket, the sheen, the glint and the spark.
+    expect(await ovals()).toBe(8);
     withRoundRect = false;
-    const el = host();
-    const avatar = mountAvatar(el, { definition: examples[0], reducedMotion: true });
-    await frame();
-    expect(painted(el).filter((c) => c.op === 'arcTo').length).toBe(8);
-    avatar.destroy();
+    // And the eye itself, where there is no roundRect to draw it.
+    expect(await ovals()).toBe(10);
   });
 });

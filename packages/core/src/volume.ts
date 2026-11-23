@@ -85,7 +85,7 @@ export interface Volume {
 export type Vec3 = [number, number, number];
 
 /** A rigged character's trunk (the parts without a joint) is this deep, as a share of its width. */
-export const TRUNK_DEPTH = 0.7;
+export const TRUNK_DEPTH = 0.86;
 /** Largest depth an inflated part may take, viewBox units. */
 export const MAX_PART_DEPTH = 30;
 /** Drawn eyes are up to this much larger than the contract's 4 × 11 pill when the body has room. */
@@ -567,6 +567,7 @@ export function buildVolume(def: AvatarDefinition, volume = 1, body: BodyAnalysi
 
     const index = new EdgeIndex(polys, b);
     let thickness: number, depth: number, rxy = 0, rz = 0, axis = 0;
+    let round = v;
     if (kind === 'inflate' || !profile) {
       thickness = gridThickness(polys, b, Math.max(step, 0.6), index);
       depth = partDepth(thickness, b, v);
@@ -576,9 +577,12 @@ export function buildVolume(def: AvatarDefinition, volume = 1, body: BodyAnalysi
       axis = kind === 'revolve-x' ? (xAxis as number) : center[0];
       const radius = Math.max(...profile.r);
       thickness = 2 * radius;
-      depth = 2 * radius * v;
+      // A part turned about its axis is as deep as it is wide and no deeper: past that a ball
+      // becomes a sausage and a cup a trough. Less volume still flattens it.
+      round = Math.min(v, 1);
+      depth = 2 * radius * round;
     }
-    const surface: Surface = { kind, fillet: { depth, rxy, rz }, profile, axis, v };
+    const surface: Surface = { kind, fillet: { depth, rxy, rz }, profile, axis, v: round };
     const filled = edgeBands(polys);
     const height = (x: number, y: number) =>
       filled.winding(x, y) !== 0 ? surfaceHeight(surface, x, y, kind === 'inflate' ? index.distance(x, y) : 0) : 0;

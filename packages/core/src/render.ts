@@ -1,8 +1,8 @@
 /**
  * Renderers for a validated silhouette + eye placement with implied volume
- * (see volume.ts). One flat body color, two plain dark eyes; no gradients,
- * gloss, rim light or shadows. Output is built only from numbers and the
- * renderer's own markup.
+ * (see volume.ts). One body color, flat unless `shading`, `grain` or `shadow`
+ * ask for more, and two dark oval eyes with a shadow round them and highlights
+ * on them. Output is built only from numbers and the renderer's own markup.
  *
  * - avatarFrame: one frame flattened to plain data (paths, matrices, eyes),
  *   for any vector renderer.
@@ -37,6 +37,13 @@ import type { AvatarDefinition, RenderOptions } from './types.ts';
 
 export const DEFAULT_COLOR = '#ff6a1a';
 export const DEFAULT_EYE_COLOR = '#151515';
+/**
+ * The open eye as drawn, against the contract's 4 × 11 pill: this many times as wide and as tall.
+ * A rounder eye reads as a bead in the body; it stays inside the room validation keeps for the
+ * pill and the happy arc.
+ */
+const EYE_OVAL = { wide: 1.5, tall: 0.8 } as const;
+
 /** `depth` option value that maps to the natural inferred volume. */
 export const DEFAULT_DEPTH = 6;
 const MAX_DEPTH = 14;
@@ -381,11 +388,14 @@ function sliceCull(v: ViewBasis): (s: VolumeSlice) => boolean {
 // Eyes (shared by both renderers, in face-plane coordinates)
 
 interface EyeState {
-  /** Neutral center and size. */
+  /** Neutral center and contract size (the happy arc and the slit are measured from it). */
   x: number;
   y: number;
   w: number;
   h: number;
+  /** The open eye as drawn: an oval this wide and tall. */
+  pw: number;
+  ph: number;
   /** Gaze offset. */
   dx: number;
   dy: number;
@@ -400,6 +410,8 @@ interface EyeState {
 function eyeStates(p: Prepared, pose: Pose): [EyeState, EyeState] {
   const s = p.vol.eyeScale;
   const w = EYE_W * s, h = EYE_H * s;
+  // Drawn rounder than the contract's tall pill: wider (as far as the gap between the eyes allows) and shorter.
+  const pw = Math.min(w * EYE_OVAL.wide, p.def.eyes.spacing * 0.8), ph = h * EYE_OVAL.tall;
   const r = p.range;
   const dx = pose.gazeX * (pose.gazeX >= 0 ? r.right : r.left) * GAZE_X * s;
   const dy = pose.gazeY * (pose.gazeY >= 0 ? r.down : r.up) * GAZE_Y * s;
@@ -407,14 +419,15 @@ function eyeStates(p: Prepared, pose: Pose): [EyeState, EyeState] {
   const plain = plainLook(pose.eyes);
   return ([0, 1] as const).map((i) => {
     const squint = i === 0 ? pose.squintL : pose.squintR;
-    const open = Math.max(h * Math.max(0.09, (1 - pose.blink) * (1 - squint * 0.4)), w * 0.55);
-    return { x: centers[i][0], y: centers[i][1], w, h, dx, dy, open, shift: (h - open) * 0.18, look: pose.eyes, plain };
+    // A blink closes the oval to a low lens, never to nothing.
+    const open = Math.max(ph * Math.max(0.09, (1 - pose.blink) * (1 - squint * 0.4)), pw * 0.24);
+    return { x: centers[i][0], y: centers[i][1], w, h, pw, ph, dx, dy, open, shift: (ph - open) * 0.18, look: pose.eyes, plain };
   }) as [EyeState, EyeState];
 }
 
 /** Where an eye is drawn: with its gaze offset, or without it where a transform applies the gaze. */
 function eyeSpot(e: EyeState, gaze: boolean): EyeSpot {
-  return { x: e.x + (gaze ? e.dx : 0), y: e.y + (gaze ? e.dy : 0), w: e.w, h: e.h, open: e.open, shift: e.shift };
+  return { x: e.x + (gaze ? e.dx : 0), y: e.y + (gaze ? e.dy : 0), w: e.w, h: e.h, pw: e.pw, ph: e.ph, open: e.open, shift: e.shift };
 }
 
 function happyArc(e: EyeState): string {
@@ -424,11 +437,37 @@ function happyArc(e: EyeState): string {
 }
 
 function eyeMark(e: EyeState): EyeMark {
-  if (e.plain === 'arc') return { shape: 'arc', d: happyArc(e), strokeWidth: e.w * HAPPY_ARC.stroke };
-  if (e.plain === null) return { shape: 'path', d: eyePath(e.look, eyeSpot(e, true)) };
+  if (e.plain !== 'pill') return { shape: 'path', d: eyePath(e.look, eyeSpot(e, true)) };
   const cx = e.x + e.dx, cy = e.y + e.dy + e.shift;
-  return { shape: 'pill', x: cx - e.w / 2, y: cy - e.open / 2, width: e.w, height: e.open, radius: Math.min(e.w, e.open) / 2 };
+  return { shape: 'pill', x: cx - e.pw / 2, y: cy - e.open / 2, width: e.pw, height: e.open, radius: e.pw / 2, radiusY: e.open / 2 };
 }
+
+/**
+ * What makes an eye a glossy bead set into the body instead of a flat mark: a shadow round it and
+ * the light on it. Only an open eye has them; they fade as it turns into an arc or a slit and
+ * close with it when it blinks. The light stays to the upper left while the eye looks about.
+ */
+function eyeGloss(e: EyeState): EyeGloss | undefined {
+  // How much of each look: open, happy (the top of the eye shows) and lidded (the bottom does).
+  const happy = clamp(e.look.arc, 0, 1), lidded = clamp(e.look.slit, 0, 1 - happy), open = 1 - happy - lidded;
+  const cx = e.x + e.dx, wide = e.pw;
+  // A happy eye does not blink: it keeps its full height.
+  const tall = mix1(e.open, e.ph, happy), cy = e.y + e.dy + mix1(e.shift, 0, happy);
+  const lid = clamp((tall / e.ph) * 1.6, 0, 1);
+  const rim = 0.08 * wide + 0.25;
+  return {
+    // The shadow belongs to the whole socket; a part-closed eye has a lid over it instead.
+    socket: { cx, cy: cy + 0.03 * tall, rx: wide / 2 + rim, ry: tall / 2 + rim, opacity: 0.22 * open },
+    // The sheen lies across the top: it draws up into a happy eye's dome and is under a lowered lid.
+    sheen: { cx: cx - 0.06 * wide - 0.2 * e.dx, cy: cy - mix1(0.16, 0.27, happy) * tall, rx: mix1(0.37, 0.3, happy) * wide, ry: mix1(0.29, 0.14, happy) * tall, opacity: 0.17 * (open + happy) },
+    // The highlight stays with what shows: upper left, or just under the lid.
+    glint: { cx: cx - 0.17 * wide - 0.25 * e.dx, cy: cy + mix1(-0.23, 0.1, lidded) * tall - 0.2 * e.dy * lid, rx: 0.15 * wide, ry: Math.min(0.17 * wide, mix1(0.2, 0.13, happy + lidded) * tall), opacity: 0.95 * lid },
+    // The second one is low on the eye: a happy eye's lid covers it.
+    spark: { cx: cx + 0.19 * wide - 0.15 * e.dx, cy: cy + 0.25 * tall, rx: 0.065 * wide, ry: Math.min(0.065 * wide, 0.1 * tall), opacity: 0.55 * (open + lidded) * lid },
+  };
+}
+
+const mix1 = (a: number, b: number, k: number) => a + (b - a) * k;
 
 function colors(options: RenderOptions): { color: string; ink: string } {
   return {
@@ -449,9 +488,30 @@ export type Matrix = [number, number, number, number, number, number];
  * bot's slits, and every shape on the way from one look to the next).
  */
 export type EyeMark =
-  | { shape: 'pill'; x: number; y: number; width: number; height: number; radius: number }
+  /** The open eye: an oval in the box x, y, width, height (`radius` and `radiusY` are its half width and half height). */
+  | { shape: 'pill'; x: number; y: number; width: number; height: number; radius: number; radiusY: number }
   | { shape: 'arc'; d: string; strokeWidth: number }
   | { shape: 'path'; d: string };
+
+/** An ellipse of light or shadow on an eye. */
+export interface EyeSpotlight {
+  cx: number;
+  cy: number;
+  rx: number;
+  ry: number;
+  opacity: number;
+}
+
+export interface EyeGloss {
+  /** The shadow round the eye, a little bigger than it: the eye sits in the body. */
+  socket: EyeSpotlight;
+  /** A broad soft light across the upper half. */
+  sheen: EyeSpotlight;
+  /** The bright highlight, upper left. */
+  glint: EyeSpotlight;
+  /** A small second highlight, lower right. */
+  spark: EyeSpotlight;
+}
 
 export type FrameShape =
   | {
@@ -464,7 +524,17 @@ export type FrameShape =
       /** With `shading`: this cross-section's own color, in place of AvatarFrame.color. */
       fill?: string;
     }
-  | { kind: 'eye'; key: 'eye-0' | 'eye-1'; matrix: Matrix; mark: EyeMark }
+  | {
+      kind: 'eye';
+      key: 'eye-0' | 'eye-1';
+      matrix: Matrix;
+      mark: EyeMark;
+      /**
+       * An open eye's depth, in the mark's coordinates: paint `socket` (black) under the mark, then
+       * `sheen`, `glint` and `spark` (white) over it, each at its opacity.
+       */
+      gloss?: EyeGloss;
+    }
   | {
       /**
        * A piece of a ribbon: fill `d` in `fill`. Each ribbon has a hue of its own, set apart from
@@ -693,8 +763,16 @@ function shadeRamp(color: string, amount: number): string[] {
   return ramp;
 }
 
+/**
+ * How much of a cross-section's shade comes from where it lies within its own part, the rest from
+ * where it lies in the whole body. Its own part gives every limb a darker rim and a lighter
+ * middle, which sets it off from the body it rests against; the whole body keeps a far arm
+ * darker than a near one.
+ */
+const SHADE_OWN = 0.55;
+
 /** Give each cross-section its shade by how near the viewer it is. `items` are sorted back to front. */
-function shadeSlices(items: { depth: number; shape: FrameShape }[], color: string, shading: number | undefined) {
+function shadeSlices(items: { depth: number; part?: number; shape: FrameShape }[], color: string, shading: number | undefined) {
   const amount = clamp(Number.isFinite(shading) ? (shading as number) : 0, 0, 1);
   if (amount <= 0) return;
   let min = Infinity, max = -Infinity;
@@ -704,9 +782,25 @@ function shadeSlices(items: { depth: number; shape: FrameShape }[], color: strin
     if (it.depth > max) max = it.depth;
   }
   if (!(max - min > 0.5)) return;
+  // Each part's own nearest and furthest cross-section.
+  const own = new Map<number, [number, number]>();
+  for (const it of items) {
+    if (it.shape.kind !== 'slice' || it.part === undefined) continue;
+    const range = own.get(it.part);
+    if (!range) own.set(it.part, [it.depth, it.depth]);
+    else {
+      if (it.depth < range[0]) range[0] = it.depth;
+      if (it.depth > range[1]) range[1] = it.depth;
+    }
+  }
   const ramp = shadeRamp(color, Math.round(amount * 20) / 20);
   for (const it of items) {
-    if (it.shape.kind === 'slice') it.shape.fill = ramp[Math.round(((it.depth - min) / (max - min)) * SHADE_LEVELS)];
+    if (it.shape.kind !== 'slice') continue;
+    const whole = (it.depth - min) / (max - min);
+    const range = it.part === undefined ? undefined : own.get(it.part);
+    // A part that is the whole body, or too thin to have a range, takes the body's shade alone.
+    const t = range && own.size > 1 && range[1] - range[0] > 0.5 ? whole + (((it.depth - range[0]) / (range[1] - range[0])) - whole) * SHADE_OWN : whole;
+    it.shape.fill = ramp[Math.round(clamp(t, 0, 1) * SHADE_LEVELS)];
   }
 }
 
@@ -727,7 +821,7 @@ function flatFrame(definition: AvatarDefinition, options: RenderOptions, size: n
 
   // Only the cross-sections this view draws are listed; ids are stable across frames.
   const paths = new Map<string, FramePath>();
-  const items: { depth: number; shape: FrameShape }[] = [];
+  const items: { depth: number; part?: number; shape: FrameShape }[] = [];
   const moves = p.def.rig?.length ? rigMoves(p.def, pose.limbs) : null;
   if (fx.body > 0) {
     drawnSlices(p, v, size, (s, plain, i, j) => {
@@ -742,7 +836,7 @@ function flatFrame(definition: AvatarDefinition, options: RenderOptions, size: n
       const [rx, ry] = i === vol.eyePart ? eyesMid : vol.parts[i].center;
       const key3: Vec3 = stack === 'z' ? [rx, ry, s.at] : [s.at, ry, 0];
       const depth = projectPoint(v, g ? moved(g, key3) : key3, pivot)[2];
-      items.push({ depth, shape: { kind: 'slice', key: `${i}${stack}${j}`, path: path.id, matrix: shrink(m) } });
+      items.push({ depth, part: i, shape: { kind: 'slice', key: `${i}${stack}${j}`, path: path.id, matrix: shrink(m) } });
     }, moves ? (i) => moves.has(i) : undefined);
     const face = moves?.get(vol.eyePart);
     // Painted on the surface; each eye goes once the surface under it turns away.
@@ -753,7 +847,7 @@ function flatFrame(definition: AvatarDefinition, options: RenderOptions, size: n
         items.push({
           depth: projectPoint(v, face ? moved(face, mid) : mid, pivot)[2] + 1e-6,
           // The eyes are painted on the head: they tilt with it.
-          shape: { kind: 'eye', key: idx === 0 ? 'eye-0' : 'eye-1', matrix: shrink(face ? movedMatrix(v, pivot, face, (a, c) => [a, c, z]) : planeMatrix(v, z, pivot)), mark: eyeMark(e) },
+          shape: { kind: 'eye', key: idx === 0 ? 'eye-0' : 'eye-1', matrix: shrink(face ? movedMatrix(v, pivot, face, (a, c) => [a, c, z]) : planeMatrix(v, z, pivot)), mark: eyeMark(e), gloss: eyeGloss(e) },
         });
       }
     });
@@ -802,12 +896,16 @@ function flatFrame(definition: AvatarDefinition, options: RenderOptions, size: n
 // ---------------------------------------------------------------------------
 // Standalone SVG still
 
-function eyeSvg(mark: EyeMark, ink: string): string {
+const spotSvg = (s: EyeSpotlight, color: string) =>
+  s.opacity > 0.005 ? `<ellipse cx="${f(s.cx)}" cy="${f(s.cy)}" rx="${f(s.rx)}" ry="${f(s.ry)}" fill="${color}" fill-opacity="${f(s.opacity)}"/>` : '';
+
+function eyeSvg(mark: EyeMark, ink: string, gloss?: EyeGloss): string {
+  if (gloss) return spotSvg(gloss.socket, '#000') + eyeSvg(mark, ink) + spotSvg(gloss.sheen, '#fff') + spotSvg(gloss.glint, '#fff') + spotSvg(gloss.spark, '#fff');
   if (mark.shape === 'path') return `<path d="${mark.d}" fill="${ink}"/>`;
   if (mark.shape === 'arc') {
     return `<path d="${mark.d}" fill="none" stroke="${ink}" stroke-width="${f(mark.strokeWidth)}" stroke-linecap="round"/>`;
   }
-  return `<rect x="${f(mark.x)}" y="${f(mark.y)}" width="${f(mark.width)}" height="${f(mark.height)}" rx="${f(mark.radius)}" fill="${ink}"/>`;
+  return `<rect x="${f(mark.x)}" y="${f(mark.y)}" width="${f(mark.width)}" height="${f(mark.height)}" rx="${f(mark.radius)}" ry="${f(mark.radiusY)}" fill="${ink}"/>`;
 }
 
 type RibbonGradient = { x1: number; y1: number; x2: number; y2: number; stops: string[] };
@@ -832,7 +930,7 @@ export function renderAvatarSvg(definition: AvatarDefinition, options: RenderOpt
   const body = frame.shapes
     .map((s) =>
       s.kind === 'slice' ? `<use href="#${s.path}" transform="${mat(s.matrix)}"${s.fill ? ` fill="${s.fill}"` : ''}/>`
-      : s.kind === 'eye' ? `<g transform="${mat(s.matrix)}">${eyeSvg(s.mark, frame.ink)}</g>`
+      : s.kind === 'eye' ? `<g transform="${mat(s.matrix)}">${eyeSvg(s.mark, frame.ink, s.gloss)}</g>`
       : `<g transform="${mat(s.matrix)}">${ribbonSvg(s.d, s.gradient)}</g>`,
     )
     .join('');
@@ -910,14 +1008,14 @@ export function renderAvatarScene(definition: AvatarDefinition, options: Pick<Re
     vol.parts.map((part) => (axis === 'z' ? part.zSlices : part.xSlices).map(sliceMarkup).join('')).join('') +
     `</div>`;
   const eyes = eyeStates(p, poseOf(p, { reducedMotion: true })).map((e, i) => {
-    const box = `left:${u(e.x - e.w / 2)};top:${u(e.y - e.h / 2)};width:${u(e.w)};height:${u(e.h)}`;
+    const box = `left:${u(e.x - e.pw / 2)};top:${u(e.y - e.ph / 2)};width:${u(e.pw)};height:${u(e.ph)}`;
     return (
       `<div data-eye="${i}" style="position:absolute;${box};backface-visibility:hidden;transform:translateZ(${u(vol.eyeZ[i] + EYE_LIFT)})">` +
-      `<i style="position:absolute;inset:0;border-radius:999px;background:${ink}"></i>` +
-      `<svg viewBox="${f(e.x - e.w / 2)} ${f(e.y - e.h / 2)} ${f(e.w)} ${f(e.h)}" style="${FILL}overflow:visible;display:none" aria-hidden="true">` +
+      `<i style="position:absolute;inset:0;border-radius:50%;background:${ink}"></i>` +
+      `<svg viewBox="${f(e.x - e.pw / 2)} ${f(e.y - e.ph / 2)} ${f(e.pw)} ${f(e.ph)}" style="${FILL}overflow:visible;display:none" aria-hidden="true">` +
       `<path d="${happyArc(e)}" fill="none" stroke="${ink}" stroke-width="${f(e.w * HAPPY_ARC.stroke)}" stroke-linecap="round"/></svg>` +
       // Every look between the pill and the arc: its outline is written each frame it changes.
-      `<svg data-morph viewBox="${f(e.x - e.w / 2)} ${f(e.y - e.h / 2)} ${f(e.w)} ${f(e.h)}" style="${FILL}overflow:visible;display:none" aria-hidden="true">` +
+      `<svg data-morph viewBox="${f(e.x - e.pw / 2)} ${f(e.y - e.ph / 2)} ${f(e.pw)} ${f(e.ph)}" style="${FILL}overflow:visible;display:none" aria-hidden="true">` +
       `<path fill="${ink}"/></svg>` +
       `</div>`
     );
@@ -1009,10 +1107,10 @@ export function sceneFrame(definition: AvatarDefinition, options: RenderOptions 
     slices: p.vol.parts.flatMap((part) => (stack === 'z' ? part.zSlices : part.xSlices).map((s) => kept[k++] && drawn(s))),
     eyes: states.map((e, i) => ({
       visible: eyeVisible(p.vol, v, i),
-      happy: e.plain === 'arc',
+      happy: false,
       transform: `translateZ(${u(p.vol.eyeZ[i] + EYE_LIFT)}) translate(${u(e.dx)},${u(e.dy)})`,
-      pill: `translateY(${u(e.shift)}) scaleY(${r4(e.open / e.h)})`,
-      d: e.plain === null ? eyePath(e.look, eyeSpot(e, false)) : '',
+      pill: `translateY(${u(e.shift)}) scaleY(${r4(e.open / e.ph)})`,
+      d: e.plain !== 'pill' ? eyePath(e.look, eyeSpot(e, false)) : '',
     })),
   };
 }

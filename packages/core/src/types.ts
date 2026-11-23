@@ -27,7 +27,7 @@ export const JOINT_ROLES: readonly AvatarJointRole[] = ['head', 'arm-l', 'arm-r'
 
 /**
  * One part of the body that moves on a joint: the `part`-th outline of body.path (holes are not
- * counted), turning about (x, y). Several parts may share a role (a hand moves with its forearm);
+ * counted), turning about (x, y). Several parts may share a role (a shoe moves with its shin);
  * parts without a joint, such as the torso, stay put. Draw limbs hanging down at rest.
  */
 export interface AvatarJoint {
@@ -96,7 +96,7 @@ export interface RenderOptions {
    * live avatars skip cross-sections that would sit less than a pixel apart.
    */
   size?: number;
-  /** Volume amount 0..14 (default 6 = natural depth; 0 = flat). Scales every part's inferred depth. A rigged character stops at 6. */
+  /** Volume amount 0..14 (default 6 = natural depth; 0 = flat). Scales every part's inferred depth, except that a round part (one turned about an axis) and a rigged character stop at 6. */
   depth?: number;
   /**
    * Depth shading 0..1 (default 0 = one flat color): cross-sections further from the viewer are

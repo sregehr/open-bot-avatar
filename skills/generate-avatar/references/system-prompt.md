@@ -81,28 +81,37 @@ A character is a small figure the engine brings to life: it waves and stretches 
 
 **Parts, each its own subpath.** Draw them in this order and give every moving one a joint:
 
-1. The head: `role` `head`, jointed at the neck: on x 50, about a tenth of the head's height up from its bottom edge, where it overlaps the neck or torso.
+1. The head: `role` `head`, jointed at the neck: on x 50, about a tenth of the head's height up from its bottom edge, where it overlaps the torso.
 2. Anything worn on the head (a cap, a bun, ears, an antenna): `head` too, with the head's joint, so it tilts along. At most two such parts.
-3. A neck, if the build has one, and the torso: no joint. They stay put and everything hangs off them.
-4. For the left side of the screen, then the right: the upper arm (`arm-l`, jointed at the shoulder), the forearm (`forearm-l`, at the elbow), the hand (`forearm-l`, at the elbow again, so it moves with the forearm), the thigh (`leg-l`, at the hip), the shin (`shin-l`, at the knee) and the foot (`shin-l`, at the knee again). Then the same with `-r`.
+3. The torso: no joint. It stays put and everything hangs off it.
+4. For the left side of the screen, then the right: the upper arm (`arm-l`, jointed at the shoulder), the forearm (`forearm-l`, at the elbow), the thigh (`leg-l`, at the hip), the shin (`shin-l`, at the knee) and the shoe (`shin-l`, at the knee again, so it moves with the shin). Then the same with `-r`.
 
-That is 14 parts, or up to 16 with headwear. `part` in the rig is a part's place in this list, from 0.
+That is 12 parts, or up to 14 with headwear. `part` in the rig is a part's place in this list, from 0.
 
-**Draw it at rest, facing front, standing.** Arms hang down, a little out from the body; legs straight down. Never draw a pose: no raised arm, no bent knee, no stride. The engine adds every pose, and it measures each one from limbs that hang.
+**No neck, no separate hands.** The head sits straight on the torso, overlapping it by about 3 units. A hand is the forearm's own rounded end, which is why the forearm flares toward it.
 
-**Shapes.** Limbs are capsules from joint to joint (two parallel sides, round ends). Hands are circles, feet are flat ellipses. Head, torso, hands and feet are symmetric about their own vertical center line, so the engine makes them round. Each part reaches 3 units or more into the part it joins, so a turning limb never opens a gap. Mirror the right side from the left about x = 50.
+**Draw it at rest, facing front, standing.** Arms hang down, angled about 20° out from the body so a gap shows between arm and torso; legs straight down. Never draw a pose: no raised arm, no bent knee, no stride. The engine adds every pose, and it measures each one from limbs that hang.
+
+**Shapes.**
+
+- A limb is two tapered pieces that meet at the same thickness, so a straight arm or leg reads as one smooth shape and bends cleanly at the joint. Each piece is two circles (one at each joint) joined by their outer tangents.
+- An arm starts slim at the shoulder and flares into the hand: about 6.5 thick at the shoulder, 7 at the elbow and 9 at the rounded end.
+- A leg does the opposite, tapering to the ankle: about 9 thick at the hip, 8.5 at the knee and 7.5 at the ankle. Legs are drawn exactly vertical, so the engine makes them round.
+- A shoe is a dome on a flat sole standing on y 92: about 12 wide and 7 tall, centered under the ankle, at least 2.5 units wider than the ankle on each side.
+- The torso is a soft block with generously rounded corners (radius about 8), a little wider at the shoulders than at the hips, and smaller than the head.
+- The shoulder joint sits about 1 unit inside the torso's top corner, and the hip joint 2 units above its bottom edge, so a turning limb never opens a gap. Mirror the right side from the left about x = 50.
 
 **The head carries the face** and is the biggest single part: bigger in area than the torso. The eyes sit a little above its center. A smaller head needs smaller eyes: `scale` is the head's width divided by 50 (1 on a head 50 wide, 0.8 on 40, 0.65 on 31; never below 0.6), with `spacing` about 0.3 of the head's width.
 
-**Proportions.** Pick one build and keep to its measurements; all fit the canvas with the feet on y 92.
+**Proportions.** Pick one build and keep to its measurements; all fit the canvas with the soles on y 92.
 
-| Build | Reads as | Head | Torso | Arm (shoulder, elbow, wrist) | Leg (hip, knee, ankle) |
+| Build | Reads as | Head | Torso (shoulders, hips) | Arm (shoulder, elbow, end) | Leg (hip, knee, ankle) |
 | --- | --- | --- | --- | --- | --- |
-| Buddy | Toy: big head, small body | circle r 25 at 50,34 | x 36..64, y 54..76 | 38,60 · 31,66 · 26.5,72 | 43,74 · 42.5,81 · 42.5,87 |
-| Pal | In between | circle r 20 at 50,29 | x 37..63, y 45..72 | 39,51.5 · 31.5,59.5 · 27.5,67.5 | 44,69.5 · 43.5,78.5 · 43.5,87 |
-| Figure | Closest to a person: a neck, shoulders wider than the waist | circle r 15.5 at 50,25 | shoulders x 34..66 at y 44, waist x 39..61 at y 70 | 36,48.5 · 30.5,59 · 27.8,68.5 | 44.5,68 · 44,78.5 · 44,87 |
+| Buddy | Toy: big head, small body | circle r 25 at 50,34 | x 39.5..60.5 at y 55, x 40.5..59.5 at y 77 | 40.4,60.5 · 36.8,66.5 · 33.6,72.5 | 44.4,75 · 44.4,81.5 · 44.4,87 |
+| Pal | In between | circle r 19.5 at 50,28.5 | x 38.5..61.5 at y 45, x 39.5..60.5 at y 70 | 39.6,51 · 35.6,59.5 · 32,68 | 43.8,68 · 43.8,77.5 · 43.8,86.5 |
+| Figure | Closest to a person: legs as long as the torso | circle r 15 at 50,24 | x 37.5..62.5 at y 36, x 39.2..60.8 at y 67 | 38.8,42.5 · 35,52.5 · 31.6,62.5 | 43.6,65 · 43.6,76 · 43.6,86.5 |
 
-Limbs are 7 to 10 units thick. The hand is a circle of radius 4 centered 1.5 units past the wrist. The foot is an ellipse 12 wide and 7 tall, centered 1.5 units below the ankle and 1.5 units out to its own side, so it sits flush with the shin on the inside, sticks out 3 units or more on the outside, and its bottom edge is the lowest point of the figure, at y 92 or just above. The head need not be a circle: a rounded square, a hexagon or a drop of the same size gives a different character, and so does a broader or longer torso (a coat that widens to the hem).
+The head need not be a circle: a rounded square, a hexagon or a drop of the same size gives a different character, and so does a broader torso (which carries the shoulders out with it) or a longer one (a coat that widens to the hem).
 
 **Headwear needs room.** For something that sits on top of the head (ears, a bun, a hat), make the head about 2.5 units smaller in radius and move its center 2.5 down, so its bottom edge stays where it was and the top of the headwear stays inside y 8; the torso and limbs do not move. Headwear stays clear of the face: it sits above or beside the eyes, never over them, and changes the outline (a cap's brim pokes out to one side, a hard hat's rim to both). Where it meets the head, step out by 3 units or more, or sit flush: never a sliver.
 
@@ -129,7 +138,7 @@ Design for this; the silhouette is all you control.
 
 ## Craft
 
-The look: a simple, rounded character first and an object second. Think of a soft, chunky blob made of a few rounded lobes, in one saturated flat color with two plain dark pill eyes, that carries just enough of the object's silhouette to be named at 28 px. Avoid realism and mechanical construction: no thin rods, elaborate handles or fine parts. The renderer draws one flat color with no shading, so the silhouette alone must carry recognition.
+The look: a simple, rounded character first and an object second. Think of a soft, chunky blob made of a few rounded lobes, in one color with two glossy dark oval eyes, that carries just enough of the object's silhouette to be named at 28 px. Avoid realism and mechanical construction: no thin rods, elaborate handles or fine parts. The renderer draws one color, shaded only by its own volume, so the silhouette alone must carry recognition.
 
 - **Pick the iconic view**: the one whose outline alone names the object at thumbnail size (often the side profile for vessels, tools and turned objects, the front for devices and faces). If it would not, change the view or exaggerate the signature feature.
 - **Toy proportions.** Chunky and slightly squat; parts at least 5 units thick; corner radii 3+ units; no hairlines or thin spikes, and tapering parts end in a softly rounded tip rather than a sharp point. Prefer `C` curves and arcs over polygons for anything organic.
@@ -139,7 +148,7 @@ The look: a simple, rounded character first and an object second. Think of a sof
 - **Balance.** Center the visual mass near x 50, sit the object on a flat or gently rounded base near y 80–88 so it looks grounded.
 - **Eyes.** Default scale 1–1.15 and spacing 15–18; up to 1.25 on large round bodies. Two eyes only; no mouth, brows or pupils (the engine expresses mood).
 
-Character failures and fixes: the head is not the biggest part → enlarge it or slim the torso; more than 16 subpaths → drop headwear before limbs; a `part` number that names the wrong outline → recount from 0 in path order; a limb drawn raised or bent → redraw it hanging; a gap at a shoulder or hip when the limb turns → run the limb further into the torso.
+Character failures and fixes: the head is not the biggest part → enlarge it or slim the torso; a neck, or hands drawn as their own parts → remove them; a ledge where a limb's two pieces meet → give both the same thickness at the joint; a `part` number that names the wrong outline → recount from 0 in path order; a limb drawn raised or bent → redraw it hanging; a gap at a shoulder or hip when the limb turns → run the limb further into the torso.
 
 Common failures and fixes: eyes outside the body or too little face room → enlarge the face part or move `eyes` to its calm center; a secondary part that reads as big as the main mass → shrink its envelope while keeping its joints (see *Structure*); safe-area overflow → shrink the secondary parts first, then scale the drawing toward 50,50; unexpected hole → an overlapping part was wound counter-clockwise, reverse it; a small ledge or notch where two parts meet → make the step clearly bigger, or match the edges and bury the corners (see *Structure*).
 
@@ -171,8 +180,8 @@ Watering Can (side view; the can body carries the face; handle loop and spout ar
 {"version":1,"id":"watering-can","name":"Watering Can","body":{"path":"M32 38H62C68 38 71 41 72 47L74 76C74.5 82 70 86 64 86H30C24 86 19.5 82 20 76L22 47C23 41 26 38 32 38ZM23 63C14 63 8.5 57 8.5 48C8.5 37 13 30.5 19 30.5C25 30.5 28.5 34 30 39.5L26 52ZM23.5 42C22 38 20 36 17.5 36C15 36 14 41 14 48C14 54 16 57.5 22 58L23.5 47ZM69 66C75 61 78 55 80 46.5L88 49.5C85 62 80 73 72 81ZM78.7 43A7 4.5 25 0 1 91.3 49A7 4.5 25 0 1 78.7 43Z"},"eyes":{"x":47,"y":61,"spacing":16,"scale":1.15}}
 ```
 
-Scout (a character, Figure build: head, neck, torso, then arm, forearm, hand, thigh, shin and foot for the left and for the right, with a joint for every part but the neck and torso):
+Scout (a character, Figure build: head, torso, then upper arm, forearm, thigh, shin and shoe for the left and for the right, with a joint for every part but the torso):
 
 ```json
-{"version":1,"id":"figure-scout","name":"Scout","body":{"path":"M34.5 25A15.5 15.5 0 0 1 65.5 25A15.5 15.5 0 0 1 34.5 25ZM49 37H51Q54 37 54 40V44Q54 47 51 47H49Q46 47 46 44V40Q46 37 49 37ZM35.1 49.9Q34 44 40 44L60 44Q66 44 64.9 49.9L62.1 64.1Q61 70 55 70L45 70Q39 70 37.9 64.1ZM39.4 50.3L33.9 60.8A3.8 3.8 0 0 1 27.1 57.2L32.6 46.7A3.8 3.8 0 0 1 39.4 50.3ZM33.8 59.9L31.1 69.4A3.4 3.4 0 0 1 24.5 67.6L27.2 58.1A3.4 3.4 0 0 1 33.8 59.9ZM23.4 70.6A3.8 3.8 0 0 1 31 70.6A3.8 3.8 0 0 1 23.4 70.6ZM49.1 68.2L48.6 78.7A4.6 4.6 0 0 1 39.4 78.3L39.9 67.8A4.6 4.6 0 0 1 49.1 68.2ZM48 78.5L48 87A4 4 0 0 1 40 87L40 78.5A4 4 0 0 1 48 78.5ZM36.7 88.9A5.6 3 0 0 1 47.9 88.9A5.6 3 0 0 1 36.7 88.9ZM67.4 46.7L72.9 57.2A3.8 3.8 0 0 1 66.1 60.8L60.6 50.3A3.8 3.8 0 0 1 67.4 46.7ZM72.8 58.1L75.5 67.6A3.4 3.4 0 0 1 68.9 69.4L66.2 59.9A3.4 3.4 0 0 1 72.8 58.1ZM69 70.6A3.8 3.8 0 0 1 76.6 70.6A3.8 3.8 0 0 1 69 70.6ZM60.1 67.8L60.6 78.3A4.6 4.6 0 0 1 51.4 78.7L50.9 68.2A4.6 4.6 0 0 1 60.1 67.8ZM60 78.5L60 87A4 4 0 0 1 52 87L52 78.5A4 4 0 0 1 60 78.5ZM52.1 88.9A5.6 3 0 0 1 63.3 88.9A5.6 3 0 0 1 52.1 88.9Z"},"eyes":{"x":50,"y":24.4,"spacing":8,"scale":0.7},"rig":[{"part":0,"role":"head","x":50,"y":37.4},{"part":3,"role":"arm-l","x":36,"y":48.5},{"part":4,"role":"forearm-l","x":30.5,"y":59},{"part":5,"role":"forearm-l","x":30.5,"y":59},{"part":6,"role":"leg-l","x":44.5,"y":68},{"part":7,"role":"shin-l","x":44,"y":78.5},{"part":8,"role":"shin-l","x":44,"y":78.5},{"part":9,"role":"arm-r","x":64,"y":48.5},{"part":10,"role":"forearm-r","x":69.5,"y":59},{"part":11,"role":"forearm-r","x":69.5,"y":59},{"part":12,"role":"leg-r","x":55.5,"y":68},{"part":13,"role":"shin-r","x":56,"y":78.5},{"part":14,"role":"shin-r","x":56,"y":78.5}]}
+{"version":1,"id":"figure-scout","name":"Scout","body":{"path":"M35 24A15 15 0 0 1 65 24A15 15 0 0 1 35 24ZM37.9 44Q37.5 36 45.5 36L54.5 36Q62.5 36 62.1 44L61.2 59Q60.8 67 52.8 67L47.2 67Q39.2 67 38.8 59ZM41.9 43.6L38.3 53.7A3.5 3.5 0 0 1 31.8 51.2L35.7 41.3A3.3 3.3 0 1 1 41.9 43.6ZM38.4 53.3L35.9 63.6A4.4 4.4 0 0 1 27.6 60.7L31.8 51.1A3.5 3.5 0 1 1 38.4 53.3ZM48.3 65.2L47.8 76.2A4.2 4.2 0 0 1 39.4 76.2L38.9 65.2A4.7 4.7 0 1 1 48.3 65.2ZM47.8 76.2L47.3 86.7A3.7 3.7 0 0 1 39.9 86.7L39.4 76.2A4.2 4.2 0 1 1 47.8 76.2ZM37.5 90A6.1 5 0 0 1 49.7 90Q49.7 92 47.7 92H39.5Q37.5 92 37.5 90ZM64.3 41.3L68.2 51.2A3.5 3.5 0 0 1 61.7 53.7L58.1 43.6A3.3 3.3 0 1 1 64.3 41.3ZM68.2 51.1L72.4 60.7A4.4 4.4 0 0 1 64.1 63.6L61.6 53.3A3.5 3.5 0 1 1 68.2 51.1ZM61.1 65.2L60.6 76.2A4.2 4.2 0 0 1 52.2 76.2L51.7 65.2A4.7 4.7 0 1 1 61.1 65.2ZM60.6 76.2L60.1 86.7A3.7 3.7 0 0 1 52.7 86.7L52.2 76.2A4.2 4.2 0 1 1 60.6 76.2ZM50.3 90A6.1 5 0 0 1 62.5 90Q62.5 92 60.5 92H52.3Q50.3 92 50.3 90Z"},"eyes":{"x":50,"y":23.4,"spacing":8,"scale":0.7},"rig":[{"part":0,"role":"head","x":50,"y":36},{"part":2,"role":"arm-l","x":38.8,"y":42.5},{"part":3,"role":"forearm-l","x":35,"y":52.5},{"part":4,"role":"leg-l","x":43.6,"y":65},{"part":5,"role":"shin-l","x":43.6,"y":76},{"part":6,"role":"shin-l","x":43.6,"y":76},{"part":7,"role":"arm-r","x":61.2,"y":42.5},{"part":8,"role":"forearm-r","x":65,"y":52.5},{"part":9,"role":"leg-r","x":56.4,"y":65},{"part":10,"role":"shin-r","x":56.4,"y":76},{"part":11,"role":"shin-r","x":56.4,"y":76}]}
 ```

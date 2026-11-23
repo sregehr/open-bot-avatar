@@ -154,14 +154,18 @@ describe('renderAvatarSvg', () => {
     expect(() => renderAvatarSvg({ ...clone(controller), body: { path: 'M0 0<g/>' } })).toThrow(/Invalid avatar/);
   });
 
-  it('draws one flat body color and plain dark eyes: no gradients, gloss, glints or shadows', () => {
+  it('draws one flat body color and glossy eyes: a shadow round each and three lights on it, no gradients or filters', () => {
     for (const e of examples) {
       for (const color of ['#ff6a1a', '#f4f4f4', '#7a7a7a']) {
         const svg = renderAvatarSvg(e, { color, time: 1.1 });
-        expect(svg).not.toMatch(/Gradient|<filter|<ellipse|<circle|opacity/i);
+        expect(svg).not.toMatch(/Gradient|<filter|<circle/i);
         // Erosion masks paint black/white luminance only; they never reach the screen.
         const visible = svg.replace(/<mask[^>]*>.*?<\/mask>/g, '');
-        const fills = new Set([...visible.matchAll(/(?:fill|stroke)="([^"]+)"/g)].map((m) => m[1]).filter((c) => c !== 'none'));
+        // Every ellipse belongs to an eye: its socket in black, its lights in white.
+        const spots = [...visible.matchAll(/<ellipse [^>]*fill="(#000|#fff)" fill-opacity="[\d.]+"\/>/g)];
+        expect(spots.length).toBe((visible.match(/<ellipse /g) ?? []).length);
+        expect(spots.length % 4).toBe(0);
+        const fills = new Set([...visible.replace(/<ellipse [^>]*\/>/g, '').matchAll(/(?:fill|stroke)="([^"]+)"/g)].map((m) => m[1]).filter((c) => c !== 'none'));
         expect([...fills].sort()).toEqual([color, DEFAULT_EYE_COLOR].sort());
       }
     }
