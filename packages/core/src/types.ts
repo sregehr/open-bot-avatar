@@ -96,7 +96,7 @@ export interface RenderOptions {
    * live avatars skip cross-sections that would sit less than a pixel apart.
    */
   size?: number;
-  /** Volume amount 0..14 (default 6 = natural depth; 0 = flat). Scales every part's inferred depth. */
+  /** Volume amount 0..14 (default 6 = natural depth; 0 = flat). Scales every part's inferred depth. A rigged character stops at 6. */
   depth?: number;
   /**
    * Depth shading 0..1 (default 0 = one flat color): cross-sections further from the viewer are

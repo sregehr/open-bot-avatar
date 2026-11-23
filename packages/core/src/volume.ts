@@ -84,6 +84,8 @@ export interface Volume {
 
 export type Vec3 = [number, number, number];
 
+/** A rigged character's trunk (the parts without a joint) is this deep, as a share of its width. */
+export const TRUNK_DEPTH = 0.7;
 /** Largest depth an inflated part may take, viewBox units. */
 export const MAX_PART_DEPTH = 30;
 /** Drawn eyes are up to this much larger than the contract's 4 × 11 pill when the body has room. */
@@ -536,10 +538,15 @@ function levels(flat: number, round: number, steps: number): number[] {
 export function buildVolume(def: AvatarDefinition, volume = 1, body: BodyAnalysis = analyzeBody(def.body.path)): Volume {
   const outlines = body.subpaths.filter((s) => !s.hole);
   const holes = body.subpaths.filter((s) => s.hole);
-  const v = Number.isFinite(volume) ? Math.max(0, volume) : 1;
+  const whole = Number.isFinite(volume) ? Math.max(0, volume) : 1;
   const xAxis = revolveAxis(body);
 
-  const parts: VolumePart[] = outlines.map((o) => {
+  // A character's limbs and head are as deep as they are wide; what they hang off (its torso and
+  // neck, the parts without a joint) is flatter front to back, as a body is.
+  const jointed = def.rig?.length ? new Set(def.rig.map((j) => j.part)) : null;
+
+  const parts: VolumePart[] = outlines.map((o, part) => {
+    const v = whole * (jointed && !jointed.has(part) ? TRUNK_DEPTH : 1);
     const cuts = holes.filter((h) => h.probe && isInside(o.polys, h.probe[0], h.probe[1]));
     const polys = [...o.polys, ...cuts.flatMap((h) => h.polys)];
     const b = bounds(o.polys);

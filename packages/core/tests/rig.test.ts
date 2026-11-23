@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { avatarFrame, renderAvatarSvg } from '../src/render.ts';
 import { blendPoses, computePose, limbsAtRest } from '../src/motion.ts';
 import { validateAvatar } from '../src/validate.ts';
+import { buildVolume } from '../src/volume.ts';
 import type { AvatarDefinition } from '../src/types.ts';
 
 const scout = JSON.parse(readFileSync(new URL('../../../gallery/figure-scout.json', import.meta.url), 'utf8')) as AvatarDefinition;
@@ -54,6 +55,14 @@ describe('rig', () => {
     }
     const early = blendPoses(a, b, 0.1).limbs.foreL - a.limbs.foreL, whole = b.limbs.foreL - a.limbs.foreL;
     expect(early / whole).toBeLessThan(0.02);
+  });
+
+  it('keeps its proportions: no deeper than natural, with a trunk flatter than it is wide', () => {
+    expect(renderAvatarSvg(scout, { depth: 14, reducedMotion: true })).toBe(renderAvatarSvg(scout, { depth: 6, reducedMotion: true }));
+    const { parts } = buildVolume(scout);
+    const head = parts[0], torso = parts[2];
+    expect(head.depth).toBeCloseTo(head.thickness, 0);
+    expect(torso.depth).toBeLessThan(0.75 * (torso.bounds.maxX - torso.bounds.minX));
   });
 
   it('draws a different frame for each state, at rest too', () => {

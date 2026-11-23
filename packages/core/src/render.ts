@@ -119,6 +119,8 @@ export function ribbonsFollow(rim: Rim, pose: Pick<Pose, 'lift' | 'sx' | 'sy'>, 
 }
 
 function prepare(definition: AvatarDefinition, depth: number): Prepared {
+  // A character keeps its proportions: a head drawn round is a ball, never stretched front to back.
+  if (definition?.rig?.length) depth = Math.min(depth, DEFAULT_DEPTH);
   const key = JSON.stringify([definition?.id, definition?.name, definition?.body?.path, definition?.eyes, definition?.rig, depth]);
   const hit = cache.get(key);
   if (hit) return hit;
