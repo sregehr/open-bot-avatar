@@ -15,8 +15,7 @@
     "@fontsource/special-gothic-expanded-one": "^5.3.0",
     "open-bot-avatar": "workspace:^",
     "react": "^19.3.1",
-    "react-dom": "^19.3.1",
-    "sugar-high": "^2.6.4"
+    "react-dom": "^19.3.1"
   },
   "devDependencies": {
     "@fontsource/geist": "^5.3.0",

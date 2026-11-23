@@ -65,7 +65,3 @@
 .avatar-studio .popover {
   box-shadow: 0 24px 60px rgba(6, 6, 93, 0.45);
 }
-
-.avatar-studio .credit {
-  color: var(--muted);
-}
