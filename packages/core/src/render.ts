@@ -392,6 +392,8 @@ export type FrameShape =
       /** Id of an entry in AvatarFrame.paths. */
       path: string;
       matrix: Matrix;
+      /** With `shading`: this cross-section's own color, in place of AvatarFrame.color. */
+      fill?: string;
     }
   | { kind: 'eye'; key: 'eye-0' | 'eye-1'; matrix: Matrix; mark: EyeMark }
   | {
@@ -445,6 +447,15 @@ export interface AvatarFrame {
   root: Matrix;
   /** Back to front. */
   shapes: FrameShape[];
+  /**
+   * With `shading`: light from the upper left, as a linear gradient in viewBox coordinates (outside
+   * `root`) to paint over everything the shapes covered, and only there.
+   */
+  light?: { x1: number; y1: number; x2: number; y2: number; stops: { at: number; color: string; opacity: number }[] };
+  /** With `grain`: how strong the speckles on the body are, 0..1. They move with `root`. */
+  grain?: number;
+  /** With `shadow`: an ellipse on the ground, outside `root`, fading from `opacity` at its center to nothing. Paint it first. */
+  shadow?: { cx: number; cy: number; rx: number; ry: number; opacity: number };
 }
 
 /** Compute one flat frame of a definition. Throws if the definition is invalid. */
@@ -589,6 +600,47 @@ function effectsOf(p: Prepared, pose: Pose, options: RenderOptions): Effects {
   };
 }
 
+/** Shade levels between the furthest and the nearest cross-section. */
+const SHADE_LEVELS = 32;
+/** At full shading: how much darker (OKLCH lightness) the furthest cross-section is, and how much lighter the nearest. */
+const SHADE_DARK = 0.3;
+const SHADE_LIGHT = 0.06;
+const shadeRamps = new Map<string, string[]>();
+
+/** The body color at each shade level, furthest first: darker and a little cooler toward the back. */
+function shadeRamp(color: string, amount: number): string[] {
+  const key = `${color}|${amount}`;
+  let ramp = shadeRamps.get(key);
+  if (!ramp) {
+    const [L, C, h] = toOklch(parseHex(color) as Rgb);
+    ramp = Array.from({ length: SHADE_LEVELS + 1 }, (_, i) => {
+      const t = i / SHADE_LEVELS;
+      const light = L - amount * SHADE_DARK * (1 - t) ** 1.25 + amount * SHADE_LIGHT * Math.max(0, (t - 0.75) / 0.25) ** 2;
+      return toHex(oklch(clamp(light, 0.04, 0.985), C * (1 + 0.12 * amount * (1 - t)), h - 8 * amount * (1 - t)));
+    });
+    if (shadeRamps.size >= 64) shadeRamps.clear();
+    shadeRamps.set(key, ramp);
+  }
+  return ramp;
+}
+
+/** Give each cross-section its shade by how near the viewer it is. `items` are sorted back to front. */
+function shadeSlices(items: { depth: number; shape: FrameShape }[], color: string, shading: number | undefined) {
+  const amount = clamp(Number.isFinite(shading) ? (shading as number) : 0, 0, 1);
+  if (amount <= 0) return;
+  let min = Infinity, max = -Infinity;
+  for (const it of items) {
+    if (it.shape.kind !== 'slice') continue;
+    if (it.depth < min) min = it.depth;
+    if (it.depth > max) max = it.depth;
+  }
+  if (!(max - min > 0.5)) return;
+  const ramp = shadeRamp(color, Math.round(amount * 20) / 20);
+  for (const it of items) {
+    if (it.shape.kind === 'slice') it.shape.fill = ramp[Math.round(((it.depth - min) / (max - min)) * SHADE_LEVELS)];
+  }
+}
+
 function flatFrame(definition: AvatarDefinition, options: RenderOptions, size: number | undefined): AvatarFrame {
   const p = prepare(definition, depthOption(options));
   const { vol } = p;
@@ -630,6 +682,7 @@ function flatFrame(definition: AvatarDefinition, options: RenderOptions, size: n
       }
     });
     items.sort((a, c) => a.depth - c.depth);
+    shadeSlices(items, color, options.shading);
   }
 
   // Ribbons and marks stay put while the body moves: their matrices undo the root's motion.
@@ -642,10 +695,32 @@ function flatFrame(definition: AvatarDefinition, options: RenderOptions, size: n
     if (!paths.has(mark.id)) paths.set(mark.id, { id: mark.id, d: mark.d, evenOdd: false, box: mark.box });
     return { kind: 'slice', key: `mark-${i}`, path: mark.id, matrix: mul(fixed as M, mark.matrix) };
   });
-  return {
+  const frame: AvatarFrame = {
     name: p.def.name, color, ink, paths: [...paths.values()], root,
     shapes: [...ribbon(false), ...items.map((it) => it.shape), ...ribbon(true), ...marks],
   };
+  const amount = clamp(Number.isFinite(options.shading) ? (options.shading as number) : 0, 0, 1);
+  if (amount > 0 && fx.body > 0) {
+    // Lit from the upper left: a highlight there, a cool shade toward the lower right.
+    frame.light = {
+      x1: b.minX, y1: b.minY - 6, x2: b.maxX, y2: b.maxY + 6,
+      stops: [
+        { at: 0, color: '#ffffff', opacity: 0.26 * amount },
+        { at: 0.42, color: '#ffffff', opacity: 0 },
+        { at: 0.58, color: '#0a0a32', opacity: 0 },
+        { at: 1, color: '#0a0a32', opacity: 0.3 * amount },
+      ],
+    };
+  }
+  const grain = clamp(Number.isFinite(options.grain) ? (options.grain as number) : 0, 0, 1);
+  if (grain > 0 && fx.body > 0) frame.grain = grain;
+  if (options.shadow && fx.body > 0) {
+    // On the ground under the resting body: smaller and fainter while the body is in the air.
+    const air = clamp(-pose.lift / 16, 0, 0.5);
+    const rx = Math.max(10, (b.maxX - b.minX) * 0.42) * (1 - air) * fx.body;
+    frame.shadow = { cx: (b.minX + b.maxX) / 2, cy: b.maxY + 2, rx, ry: Math.max(2.4, rx * 0.13), opacity: 0.34 * (1 - air) };
+  }
+  return frame;
 }
 
 // ---------------------------------------------------------------------------
@@ -680,7 +755,7 @@ export function renderAvatarSvg(definition: AvatarDefinition, options: RenderOpt
   const defsMarkup = frame.paths.map((d) => `<path id="${d.id}" d="${d.d}"${d.evenOdd ? ' fill-rule="evenodd"' : ''}/>`).join('');
   const body = frame.shapes
     .map((s) =>
-      s.kind === 'slice' ? `<use href="#${s.path}" transform="${mat(s.matrix)}"/>`
+      s.kind === 'slice' ? `<use href="#${s.path}" transform="${mat(s.matrix)}"${s.fill ? ` fill="${s.fill}"` : ''}/>`
       : s.kind === 'eye' ? `<g transform="${mat(s.matrix)}">${eyeSvg(s.mark, frame.ink)}</g>`
       : `<g transform="${mat(s.matrix)}">${ribbonSvg(s.d, s.gradient)}</g>`,
     )
@@ -688,14 +763,34 @@ export function renderAvatarSvg(definition: AvatarDefinition, options: RenderOpt
   const size = Number.isFinite(options.size) && (options.size as number) > 0 ? f(clamp(options.size as number, 8, 4096)) : null;
   const dims = size ? ` width="${size}" height="${size}"` : '';
   const label = esc(frame.name);
+  const uid = frame.light || frame.shadow ? hashString(`${mat(frame.root)}|${body}|${frame.color}`).toString(36) : '';
+  let under = '', over = '';
+  if (frame.shadow) {
+    const { cx, cy, rx, ry, opacity } = frame.shadow;
+    under =
+      `<radialGradient id="oba-s${uid}"><stop offset="0" stop-color="#000" stop-opacity="${f(opacity)}"/><stop offset="0.6" stop-color="#000" stop-opacity="${f(opacity * 0.45)}"/><stop offset="1" stop-color="#000" stop-opacity="0"/></radialGradient>` +
+      `<ellipse cx="${f(cx)}" cy="${f(cy)}" rx="${f(rx)}" ry="${f(ry)}" fill="url(#oba-s${uid})"/>`;
+  }
+  if (frame.light) {
+    const l = frame.light;
+    const stops = l.stops.map((st) => `<stop offset="${f(st.at)}" stop-color="${st.color}" stop-opacity="${f(st.opacity)}"/>`).join('');
+    // The light falls only where the body was drawn: the same shapes again, in white, as its mask.
+    over =
+      `<mask id="oba-m${uid}" maskUnits="userSpaceOnUse" x="-50" y="-50" width="200" height="200"><g transform="${mat(frame.root)}" fill="#fff" stroke="#fff">${body.replace(/ fill="(?!none)[^"]*"/g, '')}</g></mask>` +
+      `<linearGradient id="oba-l${uid}" gradientUnits="userSpaceOnUse" x1="${f(l.x1)}" y1="${f(l.y1)}" x2="${f(l.x2)}" y2="${f(l.y2)}">${stops}</linearGradient>` +
+      `<rect x="-50" y="-50" width="200" height="200" fill="url(#oba-l${uid})" mask="url(#oba-m${uid})"/>`;
+  }
 
   return (
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"${dims} role="img" aria-label="${label}" overflow="visible">` +
     `<title>${label}</title>` +
     `<defs>${defsMarkup}</defs>` +
+    under +
     `<g transform="${mat(frame.root)}" fill="${frame.color}">` +
     body +
-    `</g></svg>`
+    `</g>` +
+    over +
+    `</svg>`
   );
 }
 

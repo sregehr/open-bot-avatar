@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "id": "elemental-column",
+  "name": "Column",
+  "body": {
+    "path": "M31 18H69V82H31ZM24 10H76Q80 10 80 14V19Q80 23 76 23H24Q20 23 20 19V14Q20 10 24 10ZM24 77H76Q80 77 80 81V86Q80 90 76 90H24Q20 90 20 86V81Q20 77 24 77Z"
+  },
+  "eyes": {
+    "x": 50,
+    "y": 50,
+    "spacing": 14,
+    "scale": 1
+  }
+}

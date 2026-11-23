@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "id": "reinforcement-agent",
+  "name": "Reinforcement",
+  "body": {
+    "path": "M20 16H80Q88 16 88 24V62Q88 70 80 70H57V77H64Q69 77 69 82Q69 87 64 87H36Q31 87 31 82Q31 77 36 77H43V70H20Q12 70 12 62V24Q12 16 20 16Z"
+  },
+  "eyes": {
+    "x": 50,
+    "y": 41,
+    "spacing": 18,
+    "scale": 1.2
+  }
+}

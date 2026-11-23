@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "id": "elemental-bowl",
+  "name": "Bowl",
+  "body": {
+    "path": "M10 34Q10 26 18 26H82Q90 26 90 34A40 40 0 0 1 10 34Z"
+  },
+  "eyes": {
+    "x": 50,
+    "y": 46,
+    "spacing": 18,
+    "scale": 1.1
+  }
+}

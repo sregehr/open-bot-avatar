@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "id": "elemental-wave",
+  "name": "Wave",
+  "body": {
+    "path": "M10 40C24 24 38 24 50 36C62 48 76 48 90 32V80Q90 88 82 88H18Q10 88 10 80Z"
+  },
+  "eyes": {
+    "x": 50,
+    "y": 68,
+    "spacing": 18,
+    "scale": 1.15
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "id": "elemental-capsule",
+  "name": "Capsule",
+  "body": {
+    "path": "M30 28H70Q92 28 92 50V50Q92 72 70 72H30Q8 72 8 50V50Q8 28 30 28Z"
+  },
+  "eyes": {
+    "x": 50,
+    "y": 49,
+    "spacing": 18,
+    "scale": 1.15
+  }
+}

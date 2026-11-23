@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Agent avatars: built bundle check</title>
+  </head>
+  <body style="font: 15px system-ui; padding: 24px; background: #f6f5f2">
+    <!-- The built file as a host page loads it: no bundler, no module imports. Run the build first. -->
+    <script src="./dist/docebo-agent-avatars.iife.js"></script>
+    <p>Loaded from <code>dist/docebo-agent-avatars.iife.js</code> with a plain script tag.</p>
+    <docebo-agent-avatar avatar="tutor-agent" size="96"></docebo-agent-avatar>
+    <docebo-agent-avatar avatar="buddy-cube" state="working" size="96"></docebo-agent-avatar>
+    <docebo-avatar-picker set="agents" value="tutor-agent" style="max-width: 360px; margin-top: 16px"></docebo-avatar-picker>
+  </body>
+</html>

@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "id": "elemental-frustum",
+  "name": "Frustum",
+  "body": {
+    "path": "M30.1 22.7Q32 16 39 16L61 16Q68 16 69.9 22.7L86.1 79.3Q88 86 81 86L19 86Q12 86 13.9 79.3Z"
+  },
+  "eyes": {
+    "x": 50,
+    "y": 58,
+    "spacing": 17,
+    "scale": 1.1
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "id": "elemental-cone",
+  "name": "Cone",
+  "body": {
+    "path": "M46.4 15.2Q50 8 53.6 15.2L86.4 80.8Q90 88 82 88L18 88Q10 88 13.6 80.8Z"
+  },
+  "eyes": {
+    "x": 50,
+    "y": 66,
+    "spacing": 16,
+    "scale": 1.1
+  }
+}

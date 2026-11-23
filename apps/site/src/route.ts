@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 
-export const REPO = "https://github.com/DominikScholz/open-bot-avatar";
+export const REPO = "https://github.com/sregehr/open-bot-avatar";
+/** The project this one is a fork of. */
+export const UPSTREAM = "https://github.com/DominikScholz/open-bot-avatar";
 
 export type Route = "studio" | "docs";
 

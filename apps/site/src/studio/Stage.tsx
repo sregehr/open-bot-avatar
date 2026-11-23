@@ -9,6 +9,11 @@ export type ViewAngle = { yaw: number; pitch: number };
 interface StageProps {
   definition: AvatarDefinition;
   color: string;
+  /** The renderer's volume amount and depth shading. */
+  depth: number;
+  shading: number;
+  grain: number;
+  shadow: boolean;
   state: AvatarState;
   mood: AvatarMood;
   followCursor: boolean;
@@ -29,7 +34,7 @@ const clampPitch = (p: number) => Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, p
 /** Keep yaw in -π..π so a reset never spins the long way round. */
 const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
 
-export function Stage({ definition, color, state, mood, followCursor, reducedMotion, reduced, view, onView, onState, onMood, children }: StageProps) {
+export function Stage({ definition, color, depth, shading, grain, shadow, state, mood, followCursor, reducedMotion, reduced, view, onView, onState, onMood, children }: StageProps) {
   const drag = useRef<{ id: number; x: number; y: number; start: ViewAngle } | null>(null);
   const [dragging, setDragging] = useState(false);
   const easing = useRef(0);
@@ -133,6 +138,10 @@ export function Stage({ definition, color, state, mood, followCursor, reducedMot
         className="avatar-view stage-avatar"
         definition={definition}
         color={color}
+        depth={depth}
+        shading={shading}
+        grain={grain}
+        shadow={shadow}
         state={state}
         mood={mood}
         view={view}

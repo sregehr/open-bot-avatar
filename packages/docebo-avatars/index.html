@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Agent avatars: embed demo</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <style>
+      :root { --purple: #7e2ee9; --navy: #06065d; --ink: #2a2923; --muted: #56534e; --line: #e1dbd2; --paper: #f6f5f2; }
+      * { box-sizing: border-box; }
+      body { margin: 0; font: 15px/1.5 Figtree, ui-sans-serif, system-ui, sans-serif; color: var(--ink); background: var(--paper); }
+      header { display: flex; align-items: center; gap: 12px; padding: 14px 28px; background: #fff; border-bottom: 1px solid var(--line); }
+      header strong { font-size: 20px; font-weight: 800; letter-spacing: -0.03em; color: var(--navy); }
+      header span { color: var(--muted); }
+      main { max-width: 1080px; margin: 0 auto; padding: 28px; display: grid; gap: 28px; }
+      h1 { margin: 0 0 4px; font-size: 26px; letter-spacing: -0.02em; }
+      h2 { margin: 0 0 12px; font-size: 17px; }
+      p { margin: 0; color: var(--muted); }
+      .agents { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 16px; }
+      .agent { display: flex; align-items: center; gap: 14px; padding: 16px; background: #fff; border: 1px solid var(--line); border-radius: 18px; }
+      .agent b { display: block; font-weight: 600; }
+      .agent small { color: var(--muted); }
+      .panel { padding: 22px; background: #fff; border: 1px solid var(--line); border-radius: 22px; }
+      .choose { display: grid; grid-template-columns: minmax(200px, 260px) 1fr; gap: 28px; align-items: start; }
+      .preview { display: grid; justify-items: center; gap: 12px; padding: 20px; border-radius: 18px; background: linear-gradient(165deg, #06065d, #3c0f7d 50%, #7e2ee9); color: #fff; }
+      .preview docebo-agent-avatar { width: 100%; max-width: 190px; }
+      .states { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
+      .states button { font: inherit; cursor: pointer; padding: 5px 12px; border-radius: 999px; border: 1px solid rgba(255, 255, 255, 0.35); background: transparent; color: #fff; }
+      .states button[aria-pressed="true"] { background: #fff; color: var(--navy); border-color: #fff; }
+      code, pre { font: 13px/1.5 ui-monospace, "SF Mono", Menlo, monospace; }
+      pre { margin: 0; padding: 16px; overflow: auto; background: #2a2923; color: #f6f5f2; border-radius: 14px; }
+      @media (max-width: 720px) { .choose { grid-template-columns: 1fr; } main { padding: 16px; } }
+    </style>
+  </head>
+  <body>
+    <header><strong>docebo</strong><span>AgentHub (demo host page)</span></header>
+    <main>
+      <div>
+        <h1>Your agents</h1>
+        <p>Each card embeds one <code>&lt;docebo-agent-avatar&gt;</code> element.</p>
+      </div>
+      <section class="agents" aria-label="Agents">
+        <div class="agent"><docebo-agent-avatar avatar="authoring-agent" state="working" size="64"></docebo-agent-avatar><div><b>Authoring Agent</b><small>Building a lesson</small></div></div>
+        <div class="agent"><docebo-agent-avatar avatar="marketplace-agent" size="64" follow-pointer></docebo-agent-avatar><div><b>Marketplace Agent</b><small>Idle</small></div></div>
+        <div class="agent"><docebo-agent-avatar avatar="reinforcement-agent" state="thinking" size="64"></docebo-agent-avatar><div><b>Reinforcement Agent</b><small>Planning nudges</small></div></div>
+        <div class="agent"><docebo-agent-avatar avatar="tutor-agent" mood="happy" size="64" follow-pointer></docebo-agent-avatar><div><b>Tutor Agent</b><small>Ready to help</small></div></div>
+        <div class="agent"><docebo-agent-avatar avatar="buddy-cube" state="waiting" size="64"></docebo-agent-avatar><div><b>Onboarding Agent</b><small>Waiting for approval</small></div></div>
+        <div class="agent"><docebo-agent-avatar avatar="elemental-gem" state="blocked" size="64"></docebo-agent-avatar><div><b>Compliance Agent</b><small>Blocked: needs access</small></div></div>
+      </section>
+
+      <section class="panel">
+        <h2>Choose an avatar</h2>
+        <div class="choose">
+          <div class="preview">
+            <docebo-agent-avatar id="preview" avatar="buddy-sphere" follow-pointer></docebo-agent-avatar>
+            <strong id="name">Sphere Buddy</strong>
+            <div class="states" id="states" role="group" aria-label="State"></div>
+          </div>
+          <docebo-avatar-picker id="picker" value="buddy-sphere"></docebo-avatar-picker>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>Embed</h2>
+        <pre><code>&lt;script type="module" src="docebo-agent-avatars.js"&gt;&lt;/script&gt;
+
+&lt;docebo-agent-avatar avatar="tutor-agent" state="working" size="64"&gt;&lt;/docebo-agent-avatar&gt;
+&lt;docebo-avatar-picker value="tutor-agent"&gt;&lt;/docebo-avatar-picker&gt;</code></pre>
+      </section>
+    </main>
+    <script type="module">
+      import "./src/index.ts";
+
+      const preview = document.querySelector("#preview");
+      const states = document.querySelector("#states");
+      for (const state of ["idle", "thinking", "working", "waiting", "blocked", "done"]) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = state[0].toUpperCase() + state.slice(1);
+        button.setAttribute("aria-pressed", String(state === "idle"));
+        button.addEventListener("click", () => {
+          preview.setAttribute("state", state);
+          for (const other of states.children) other.setAttribute("aria-pressed", String(other === button));
+        });
+        states.append(button);
+      }
+      document.querySelector("#picker").addEventListener("change", (event) => {
+        preview.setAttribute("avatar", event.detail.id);
+        document.querySelector("#name").textContent = event.detail.name;
+      });
+    </script>
+  </body>
+</html>

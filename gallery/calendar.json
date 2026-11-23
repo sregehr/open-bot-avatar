@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "id": "calendar",
+  "name": "Calendar",
+  "body": {
+    "path": "M22 20H29V15A5 5 0 0 1 39 15V20H61V15A5 5 0 0 1 71 15V20H78Q86 20 86 28V78Q86 86 78 86H22Q14 86 14 78V28Q14 20 22 20Z"
+  },
+  "eyes": {
+    "x": 50,
+    "y": 54,
+    "spacing": 18,
+    "scale": 1.2
+  }
+}

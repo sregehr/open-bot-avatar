@@ -9,6 +9,7 @@ export default defineConfig({
     projects: [
       { extends: true, test: { name: 'core', include: ['packages/core/tests/**/*.test.ts'], environment: 'node' } },
       { extends: true, test: { name: 'site', include: ['apps/site/tests/**/*.test.ts'], environment: 'node' } },
+      { extends: true, test: { name: 'docebo', include: ['packages/docebo-avatars/tests/**/*.test.ts'], environment: 'node' } },
     ],
     pool: 'threads',
     maxWorkers: 2,

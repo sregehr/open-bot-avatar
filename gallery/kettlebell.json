@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "id": "kettlebell",
+  "name": "Kettlebell",
+  "body": {
+    "path": "M20 60A30 30 0 0 1 80 60A30 30 0 0 1 20 60ZM28 44V26Q28 10 44 10H56Q72 10 72 26V44ZM37 40H63V27Q63 19 55 19H45Q37 19 37 27Z"
+  },
+  "eyes": {
+    "x": 50,
+    "y": 62,
+    "spacing": 18,
+    "scale": 1.15
+  }
+}

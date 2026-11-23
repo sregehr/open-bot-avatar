@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "id": "elemental-dome",
+  "name": "Dome",
+  "body": {
+    "path": "M10 68A40 40 0 0 1 90 68Q90 76 82 76H18Q10 76 10 68Z"
+  },
+  "eyes": {
+    "x": 50,
+    "y": 54,
+    "spacing": 18,
+    "scale": 1.15
+  }
+}

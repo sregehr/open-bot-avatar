@@ -184,10 +184,16 @@ importers:
 
   apps/site:
     dependencies:
+      '@fontsource-variable/figtree':
+        specifier: ^5.3.0
+        version: 5.3.0
       '@fontsource-variable/geist':
         specifier: ^5.3.0
         version: 5.3.0
       '@fontsource/geist-mono':
+        specifier: ^5.3.0
+        version: 5.3.0
+      '@fontsource/special-gothic-expanded-one':
         specifier: ^5.3.0
         version: 5.3.0
       open-bot-avatar:
@@ -226,6 +232,15 @@ importers:
         version: 8.3.5(@types/node@26.6.6)(yaml@2.9.1)
 
   packages/core: {}
+
+  packages/docebo-avatars:
+    devDependencies:
+      open-bot-avatar:
+        specifier: workspace:^
+        version: link:../core
+      vite:
+        specifier: ^8.3.5
+        version: 8.3.5(@types/node@26.6.6)(yaml@2.9.1)
 
 packages:
 
@@ -355,6 +370,9 @@ packages:
       '@noble/hashes':
         optional: true
 
+  '@fontsource-variable/figtree@5.3.0':
+    resolution: {integrity: sha512-VRVodD7OiG7apQwE8/2fMjaqpY/a0qRJqL5HtYj8CKIVps+9amaFcdfKmDIf7iqYQx6iPLlArVXAfKeIZmVcNQ==}
+
   '@fontsource-variable/geist@5.3.0':
     resolution: {integrity: sha512-j0m+vLQuG5XAYoHtGCVu0spvlGreR3EzpECUVzkFmI1mTVnAO38l/NEPDCFgZ177JxzYJCLSmTQibIiYPilGrA==}
 
@@ -363,6 +381,9 @@ packages:
 
   '@fontsource/geist@5.3.0':
     resolution: {integrity: sha512-u03ftlfVwb05uijq2jGDJ03/HKGqMKaNFk7KOhkpBUex8+BhrAOfMs/XciJ2UUNUX9fEsZbZQld/RWMA2oFU7g==}
+
+  '@fontsource/special-gothic-expanded-one@5.3.0':
+    resolution: {integrity: sha512-XtTKD64TNnKn6by20jgpGsdiI/vDHr3t+ius1YcaS/WRxkDJ+boSIn78gE+3vd1k/ED8jz5P/J0MB9OkiopQGw==}
 
   '@jridgewell/resolve-uri@3.1.2':
     resolution: {integrity: sha512-bRISgCIjP20/tbWSPWMEi54QVPRZExkuD9lJL+UIxUKtwVJA8wW1Trb1jMs1RFXo1CBTNZ/5hpC9QvmKWdopKw==}
@@ -1328,11 +1349,15 @@ snapshots:
 
   '@exodus/bytes@1.16.0': {}
 
+  '@fontsource-variable/figtree@5.3.0': {}
+
   '@fontsource-variable/geist@5.3.0': {}
 
   '@fontsource/geist-mono@5.3.0': {}
 
   '@fontsource/geist@5.3.0': {}
+
+  '@fontsource/special-gothic-expanded-one@5.3.0': {}
 
   '@jridgewell/resolve-uri@3.1.2': {}
 

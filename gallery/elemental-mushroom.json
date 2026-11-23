@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "id": "elemental-mushroom",
+  "name": "Mushroom",
+  "body": {
+    "path": "M10 50A40 34 0 0 1 90 50Q90 58 82 58H18Q10 58 10 50ZM42 54H58Q66 54 66 62V82Q66 90 58 90H42Q34 90 34 82V62Q34 54 42 54Z"
+  },
+  "eyes": {
+    "x": 50,
+    "y": 40,
+    "spacing": 18,
+    "scale": 1.1
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "id": "elemental-sphere",
+  "name": "Sphere",
+  "body": {
+    "path": "M12 50A38 38 0 0 1 88 50A38 38 0 0 1 12 50Z"
+  },
+  "eyes": {
+    "x": 50,
+    "y": 46,
+    "spacing": 18,
+    "scale": 1.2
+  }
+}

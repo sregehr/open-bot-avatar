@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "id": "elemental-arch",
+  "name": "Arch",
+  "body": {
+    "path": "M14 88V46A36 36 0 0 1 86 46V88H62V60A12 12 0 0 0 38 60V88Z"
+  },
+  "eyes": {
+    "x": 50,
+    "y": 30,
+    "spacing": 16,
+    "scale": 1
+  }
+}

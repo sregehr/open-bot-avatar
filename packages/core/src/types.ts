@@ -76,6 +76,18 @@ export interface RenderOptions {
   size?: number;
   /** Volume amount 0..14 (default 6 = natural depth; 0 = flat). Scales every part's inferred depth. */
   depth?: number;
+  /**
+   * Depth shading 0..1 (default 0 = one flat color): cross-sections further from the viewer are
+   * drawn darker and the nearest ones a touch lighter, so the volume reads as lit from the front.
+   */
+  shading?: number;
+  /**
+   * Surface grain 0..1 (default 0): fine speckles on the body, like cast stone. Canvas renderer
+   * only; stills and the scene renderer stay smooth.
+   */
+  grain?: number;
+  /** A soft contact shadow on the ground under the body (default false). It reads on light pages. */
+  shadow?: boolean;
   /** Extra view rotation in radians on top of the resting view (drag-to-turn). yaw turns left/right, pitch tips. */
   view?: { yaw: number; pitch: number };
   /** Animation clock in seconds. Same inputs always produce the same SVG. */

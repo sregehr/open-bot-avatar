@@ -31,6 +31,12 @@ export interface AvatarOptions {
   eyeColor?: string;
   /** Volume amount 0..14 (6 = natural depth, 0 = flat). */
   depth?: number;
+  /** Depth shading 0..1 (default 0 = one flat color). Needs a hex `color`; the scene renderer stays flat. */
+  shading?: number;
+  /** Surface grain 0..1 (default 0), like cast stone. Live canvas avatars only. */
+  grain?: number;
+  /** A soft contact shadow under the body (default false). */
+  shadow?: boolean;
   /** What the bot is doing (default `idle`). Changes ease from what is on screen. */
   state?: AvatarState;
   /**
@@ -245,6 +251,8 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
           color: p.color,
           eyeColor: p.eyeColor,
           depth: p.depth,
+          shading: p.shading,
+          shadow: p.shadow,
           state: look.state,
           mood: look.mood,
           view: p.view,
@@ -269,6 +277,9 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
       const step = animator.step({ now, state: look.state, mood: look.mood, target, hold: p.holdGaze, reducedMotion });
       const options: RenderOptions = {
         depth: p.depth,
+        shading: p.shading,
+        grain: p.grain,
+        shadow: p.shadow,
         state: look.state,
         mood: look.mood,
         stateAge: step.stateAge,

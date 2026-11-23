@@ -1,6 +1,6 @@
 import { BotAvatar } from "./BotAvatar";
 import { Docs } from "./Docs";
-import { REPO, href, useRoute, type Route } from "./route";
+import { REPO, UPSTREAM, href, useRoute, type Route } from "./route";
 import { Studio } from "./Studio";
 import { LOGO, LOGO_COLOR } from "./logo";
 
@@ -14,9 +14,12 @@ export function App() {
   return (
     <div className={`avatar-studio route-${route}`}>
       <header className="site-top">
-        <a className="brand" href={href.studio} aria-label="Open Bot Avatar, home">
-          <BotAvatar className="avatar-view brand-avatar" definition={LOGO} color={LOGO_COLOR} followPointer label="" />
-          <span className="brand-name">Open Bot Avatar</span>
+        <a className="brand" href={href.studio} aria-label="Docebo Agent Avatars, home">
+          <BotAvatar className="avatar-view brand-avatar" definition={LOGO} color={LOGO_COLOR} depth={10} shading={1} followPointer label="" />
+          <span className="brand-name">
+            <span className="brand-word">docebo</span>
+            <span className="brand-product">Agent Avatars</span>
+          </span>
         </a>
         <nav className="site-nav" aria-label="Site">
           {NAV.map((n) => (
@@ -33,8 +36,8 @@ export function App() {
         </nav>
       </header>
       {route === "studio" ? <Studio /> : <Docs />}
-      <a className="credit" href="https://x.com/dom_scholz" target="_blank" rel="noopener">
-        by @dom_scholz
+      <a className="credit" href={UPSTREAM} target="_blank" rel="noopener">
+        Built on Open Bot Avatar by Dominik Scholz (MIT)
       </a>
     </div>
   );

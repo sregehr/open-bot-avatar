@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "id": "elemental-cluster",
+  "name": "Cluster",
+  "body": {
+    "path": "M14 60A30 30 0 0 1 74 60A30 30 0 0 1 14 60ZM62 34A14 14 0 0 1 90 34A14 14 0 0 1 62 34ZM19 24A11 11 0 0 1 41 24A11 11 0 0 1 19 24Z"
+  },
+  "eyes": {
+    "x": 44,
+    "y": 60,
+    "spacing": 17,
+    "scale": 1.1
+  }
+}
