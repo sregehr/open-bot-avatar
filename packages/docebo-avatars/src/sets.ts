@@ -13,7 +13,10 @@ export const SETS: AvatarSet[] = [
   {
     id: 'characters',
     label: 'Characters',
-    avatars: ['buddy-sphere', 'buddy-cube', 'buddy-hex', 'buddy-gem', 'buddy-pill', 'buddy-drop', 'buddy-waver', 'buddy-cheerer', 'buddy-strider'],
+    avatars: [
+      'buddy-sphere', 'buddy-cube', 'buddy-hex', 'buddy-gem', 'buddy-pill', 'buddy-drop', 'pal-round', 'pal-square', 'pal-kit', 'pal-bun', 'pal-bot',
+      'pal-beats', 'figure-scout', 'figure-coach', 'figure-mentor', 'figure-builder', 'figure-guide', 'figure-sage',
+    ],
   },
   {
     id: 'elemental',

@@ -1,6 +1,7 @@
 import { bounds, edgeBands, filledArea, flattenPath, parsePath, PathError, serializePath, splitSubpaths } from './path.ts';
 import type { Bounds, Point } from './path.ts';
-import type { AvatarEyes, ValidationResult } from './types.ts';
+import { JOINT_ROLES } from './types.ts';
+import type { AvatarDefinition, AvatarEyes, AvatarJoint, AvatarJointRole, ValidationResult } from './types.ts';
 
 /** Neutral eye size at scale 1, viewBox units. */
 export const EYE_W = 4;
@@ -25,7 +26,10 @@ export const HAPPY_ARC = { halfWidth: 0.72, base: 0.1, peak: 0.42, stroke: 0.6 }
 /** Gap the renderer keeps between every drawn eye shape and the outline while the eyes look around. */
 export const EYE_CLEARANCE = 1.5;
 
-const TOP_KEYS = ['version', 'id', 'name', 'body', 'eyes'];
+const TOP_KEYS = ['version', 'id', 'name', 'body', 'eyes', 'rig'];
+const JOINT_KEYS = ['part', 'role', 'x', 'y'];
+/** Most joints a rig may have. */
+const MAX_JOINTS = 24;
 const EYE_KEYS = ['x', 'y', 'spacing', 'scale'];
 
 export interface BodyHole {
@@ -278,9 +282,32 @@ export function validateAvatar(input: unknown): ValidationResult {
     }
   }
 
+  let rig: AvatarJoint[] | null = null;
+  if (input.rig !== undefined) {
+    if (!Array.isArray(input.rig) || input.rig.length > MAX_JOINTS) errors.push(`rig must be an array of at most ${MAX_JOINTS} joints`);
+    else {
+      const outlines = body ? body.subpaths.filter((sub) => !sub.hole).length : 0;
+      const seen = new Set<number>();
+      rig = [];
+      input.rig.forEach((j: unknown, i: number) => {
+        if (!isRecord(j)) return void errors.push(`rig[${i}] must be an object { part, role, x, y }`);
+        for (const k of Object.keys(j)) if (!JOINT_KEYS.includes(k)) errors.push(`unknown field "rig[${i}].${k}" (allowed: ${JOINT_KEYS.join(', ')})`);
+        if (!Number.isInteger(j.part) || (j.part as number) < 0 || (body && (j.part as number) >= outlines)) {
+          return void errors.push(`rig[${i}].part must be the index of an outline in body.path (0..${Math.max(0, outlines - 1)})`);
+        }
+        if (seen.has(j.part as number)) return void errors.push(`rig[${i}].part ${j.part} already has a joint`);
+        if (!JOINT_ROLES.includes(j.role as AvatarJointRole)) return void errors.push(`rig[${i}].role must be one of ${JOINT_ROLES.join(', ')}`);
+        if (!num(j.x) || !num(j.y) || (j.x as number) < 0 || (j.x as number) > 100 || (j.y as number) < 0 || (j.y as number) > 100) {
+          return void errors.push(`rig[${i}].x and .y must be numbers within 0..100`);
+        }
+        seen.add(j.part as number);
+        (rig as AvatarJoint[]).push({ part: j.part as number, role: j.role as AvatarJointRole, x: j.x as number, y: j.y as number });
+      });
+    }
+  }
+
   if (errors.length || !eyes) return { ok: false, errors };
-  return {
-    ok: true,
-    value: { version: 1, id: id as string, name, body: { path: normalized }, eyes: { ...eyes } },
-  };
+  const value: AvatarDefinition = { version: 1, id: id as string, name, body: { path: normalized }, eyes: { ...eyes } };
+  if (rig && rig.length) value.rig = rig;
+  return { ok: true, value };
 }

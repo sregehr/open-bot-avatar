@@ -14,6 +14,7 @@
  * animation loop.
  */
 import { createAnimator } from '../animator.ts';
+import { LIMB_MS } from '../mood.ts';
 import { pointerGaze } from '../follow.ts';
 import { resolveLook } from '../motion.ts';
 import { DEFAULT_COLOR, DEFAULT_EYE_COLOR, liveFrame, renderAvatarScene, renderAvatarSvg, sceneFrame, type SceneFrame } from '../render.ts';
@@ -151,7 +152,7 @@ const keys = new WeakMap<object, string>();
 function geometryKey(definition: AvatarDefinition): string {
   let key = keys.get(definition);
   if (key === undefined) {
-    key = JSON.stringify([definition?.id, definition?.name, definition?.body?.path, definition?.eyes]);
+    key = JSON.stringify([definition?.id, definition?.name, definition?.body?.path, definition?.eyes, definition?.rig]);
     keys.set(definition, key);
   }
   return key;
@@ -274,7 +275,7 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
         : p.followPointer && pointer && rect && rect.width > 0
           ? pointerGaze(pointer, rect, eyesOrigin(p.definition))
           : null;
-      const step = animator.step({ now, state: look.state, mood: look.mood, target, hold: p.holdGaze, reducedMotion });
+      const step = animator.step({ now, state: look.state, mood: look.mood, target, hold: p.holdGaze, reducedMotion, changeMs: p.definition?.rig?.length ? LIMB_MS : undefined });
       const options: RenderOptions = {
         depth: p.depth,
         shading: p.shading,

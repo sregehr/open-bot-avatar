@@ -93,7 +93,16 @@
   "buddy-gem": "#e1dbd2",
   "buddy-pill": "#57beff",
   "buddy-drop": "#ff5dd8",
-  "buddy-waver": "#54fa77",
-  "buddy-cheerer": "#dcb7ff",
-  "buddy-strider": "#7e2ee9"
+  "pal-round": "#54fa77",
+  "pal-square": "#57beff",
+  "pal-kit": "#ff9fe5",
+  "pal-bun": "#dcb7ff",
+  "pal-bot": "#e1dbd2",
+  "pal-beats": "#7e2ee9",
+  "figure-scout": "#e1dbd2",
+  "figure-coach": "#2e8cff",
+  "figure-mentor": "#b627c6",
+  "figure-builder": "#e3ffab",
+  "figure-guide": "#ff5dd8",
+  "figure-sage": "#e1dbd2"
 }

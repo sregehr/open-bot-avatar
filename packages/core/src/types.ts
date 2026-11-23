@@ -17,6 +17,26 @@ export interface AvatarEyes {
   scale: number;
 }
 
+/**
+ * What a rigged part is: `-l` and `-r` are the left and right of the screen. A forearm hangs off
+ * the arm of its side and a shin off the leg, so they move with it and bend on their own joint.
+ */
+export type AvatarJointRole = 'head' | 'arm-l' | 'arm-r' | 'forearm-l' | 'forearm-r' | 'leg-l' | 'leg-r' | 'shin-l' | 'shin-r';
+
+export const JOINT_ROLES: readonly AvatarJointRole[] = ['head', 'arm-l', 'arm-r', 'forearm-l', 'forearm-r', 'leg-l', 'leg-r', 'shin-l', 'shin-r'];
+
+/**
+ * One part of the body that moves on a joint: the `part`-th outline of body.path (holes are not
+ * counted), turning about (x, y). Several parts may share a role (a hand moves with its forearm);
+ * parts without a joint, such as the torso, stay put. Draw limbs hanging down at rest.
+ */
+export interface AvatarJoint {
+  part: number;
+  role: AvatarJointRole;
+  x: number;
+  y: number;
+}
+
 export interface AvatarDefinition {
   version: 1;
   /** Lowercase slug, e.g. "controller". */
@@ -26,6 +46,8 @@ export interface AvatarDefinition {
   /** One filled path, nonzero fill rule; holes wind opposite to their outline. */
   body: { path: string };
   eyes: AvatarEyes;
+  /** Optional: joints that let a character move its head, arms and legs (see AvatarJoint). */
+  rig?: AvatarJoint[];
 }
 
 /**

@@ -27,12 +27,12 @@ import type { Box } from './effects.ts';
 import { eyePath, plainLook } from './eyes.ts';
 import type { EyeSpot } from './eyes.ts';
 import { computePose, hashString, noise } from './motion.ts';
-import type { EyeLook, Pose } from './motion.ts';
+import type { EyeLook, Limbs, Pose } from './motion.ts';
 import type { Bounds, Point } from './path.ts';
 import { EYE_H, EYE_W, GAZE_X, GAZE_Y, HAPPY_ARC, analyzeBody, eyeCenters, gazeRange, validateAvatar } from './validate.ts';
 import type { GazeRange } from './validate.ts';
 import { buildVolume } from './volume.ts';
-import type { Volume, VolumeSlice } from './volume.ts';
+import type { Vec3, Volume, VolumeSlice } from './volume.ts';
 import type { AvatarDefinition, RenderOptions } from './types.ts';
 
 export const DEFAULT_COLOR = '#ff6a1a';
@@ -119,7 +119,7 @@ export function ribbonsFollow(rim: Rim, pose: Pick<Pose, 'lift' | 'sx' | 'sy'>, 
 }
 
 function prepare(definition: AvatarDefinition, depth: number): Prepared {
-  const key = JSON.stringify([definition?.id, definition?.name, definition?.body?.path, definition?.eyes, depth]);
+  const key = JSON.stringify([definition?.id, definition?.name, definition?.body?.path, definition?.eyes, definition?.rig, depth]);
   const hit = cache.get(key);
   if (hit) return hit;
   const res = validateAvatar(definition);
@@ -163,7 +163,73 @@ function poseOf(p: Prepared, options: RenderOptions): Pose {
     reducedMotion: options.reducedMotion === true,
     view: options.view,
     blend: options.motionBlend,
+    rigged: !!p.def.rig?.length,
   });
+}
+
+// ---------------------------------------------------------------------------
+// Rig: parts that turn about joints
+
+/** A rigid move in model space: p' = r·p + t, r a 3 × 3 rotation in row order. */
+interface Rigid {
+  r: number[];
+  t: Vec3;
+}
+
+const moved = (g: Rigid, [x, y, z]: Vec3): Vec3 => [
+  g.r[0] * x + g.r[1] * y + g.r[2] * z + g.t[0],
+  g.r[3] * x + g.r[4] * y + g.r[5] * z + g.t[1],
+  g.r[6] * x + g.r[7] * y + g.r[8] * z + g.t[2],
+];
+
+/** `a` after `b`. */
+function after(a: Rigid, b: Rigid): Rigid {
+  const r = new Array<number>(9);
+  for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) r[i * 3 + j] = a.r[i * 3] * b.r[j] + a.r[i * 3 + 1] * b.r[3 + j] + a.r[i * 3 + 2] * b.r[6 + j];
+  return { r, t: moved(a, b.t) };
+}
+
+/**
+ * A turn about the joint at (px, py) on the mid-plane: first `swing` degrees about the horizontal
+ * axis (a limb that hangs down comes toward the viewer), then `turn` degrees in the plane of the
+ * drawing, clockwise on screen.
+ */
+function joint(px: number, py: number, turn: number, swing: number): Rigid {
+  const a = (turn * Math.PI) / 180, b = (swing * Math.PI) / 180;
+  const ca = Math.cos(a), sa = Math.sin(a), cb = Math.cos(b), sb = Math.sin(b);
+  const r = [ca, -sa * cb, sa * sb, sa, ca * cb, -ca * sb, 0, sb, cb];
+  const g: Rigid = { r, t: [0, 0, 0] };
+  const [x, y] = moved(g, [px, py, 0]);
+  g.t = [px - x, py - y, -(r[6] * px + r[7] * py)];
+  return g;
+}
+
+/** Where each rigged part is moved to in this pose, by part index; parts without a joint are absent. */
+function rigMoves(def: AvatarDefinition, limbs: Limbs): Map<number, Rigid> {
+  const rig = def.rig ?? [];
+  const at = (role: string) => rig.find((j) => j.role === role);
+  const own: Record<string, [number, number]> = {
+    head: [limbs.head, 0],
+    'arm-l': [limbs.armL, limbs.armLs], 'arm-r': [-limbs.armR, limbs.armRs],
+    'forearm-l': [limbs.foreL, limbs.foreLs], 'forearm-r': [-limbs.foreR, limbs.foreRs],
+    'leg-l': [limbs.legL, limbs.legLs], 'leg-r': [-limbs.legR, limbs.legRs],
+    'shin-l': [0, limbs.shinL], 'shin-r': [0, limbs.shinR],
+  };
+  const parent: Record<string, string> = { 'forearm-l': 'arm-l', 'forearm-r': 'arm-r', 'shin-l': 'leg-l', 'shin-r': 'leg-r' };
+  const moves = new Map<number, Rigid>();
+  for (const j of rig) {
+    let g = joint(j.x, j.y, own[j.role][0], own[j.role][1]);
+    const up = at(parent[j.role]);
+    if (up) g = after(joint(up.x, up.y, own[up.role][0], own[up.role][1]), g);
+    moves.set(j.part, g);
+  }
+  return moves;
+}
+
+/** The projection of a plane's local coordinates once its part has been moved: still one affine map. */
+function movedMatrix(v: ViewBasis, pivot: Point, g: Rigid, to3: (a: number, b: number) => Vec3): M {
+  const o = projectPoint(v, moved(g, to3(0, 0)), pivot), x = projectPoint(v, moved(g, to3(1, 0)), pivot), y = projectPoint(v, moved(g, to3(0, 1)), pivot);
+  return [x[0] - o[0], x[1] - o[1], y[0] - o[0], y[1] - o[1], o[0], o[1]];
 }
 
 function esc(s: string): string {
@@ -285,7 +351,7 @@ export function avatarExtent(definition: AvatarDefinition, depth?: number): { x:
  * viewer, minus z-slices hidden behind the core (they add nothing to the
  * silhouette or the paint). Their union is the silhouette on screen.
  */
-function drawnSlices(p: Prepared, v: ViewBasis, size: number | undefined, visit: (s: VolumeSlice, m: M, part: number, index: number) => void) {
+function drawnSlices(p: Prepared, v: ViewBasis, size: number | undefined, visit: (s: VolumeSlice, m: M, part: number, index: number) => void, whole?: (part: number) => boolean) {
   const { vol } = p;
   const stack = activeStack(v);
   const pivot = pivotOf(vol.bounds);
@@ -294,7 +360,8 @@ function drawnSlices(p: Prepared, v: ViewBasis, size: number | undefined, visit:
   let k = 0;
   vol.parts.forEach((part, i) => {
     (stack === 'z' ? part.zSlices : part.xSlices).forEach((s, j) => {
-      if (!kept[k++] || !drawn(s)) return;
+      // A part turned out of the plane shows cross-sections the plain view would hide: keep them all.
+      if (!kept[k++] || (!whole?.(i) && !drawn(s))) return;
       visit(s, stack === 'z' ? planeMatrix(v, s.at, pivot) : sidePlaneMatrix(v, s.at, pivot), i, j);
     });
   });
@@ -659,8 +726,11 @@ function flatFrame(definition: AvatarDefinition, options: RenderOptions, size: n
   // Only the cross-sections this view draws are listed; ids are stable across frames.
   const paths = new Map<string, FramePath>();
   const items: { depth: number; shape: FrameShape }[] = [];
+  const moves = p.def.rig?.length ? rigMoves(p.def, pose.limbs) : null;
   if (fx.body > 0) {
-    drawnSlices(p, v, size, (s, m, i, j) => {
+    drawnSlices(p, v, size, (s, plain, i, j) => {
+      const g = moves?.get(i);
+      const m = g ? movedMatrix(v, pivot, g, s.axis === 'z' ? (a, c) => [a, c, s.at] : (a, c) => [s.at, c, -a]) : plain;
       let path = paths.get(s.d);
       if (!path) {
         path = { id: p.ids.get(s.d) as string, d: s.d, evenOdd: s.evenOdd, box: { ...s.box } };
@@ -668,16 +738,20 @@ function flatFrame(definition: AvatarDefinition, options: RenderOptions, size: n
       }
       // Depth keys are taken under the eyes for the eye part, so only depth decides eye-vs-body order there.
       const [rx, ry] = i === vol.eyePart ? eyesMid : vol.parts[i].center;
-      const depth = stack === 'z' ? projectPoint(v, [rx, ry, s.at], pivot)[2] : projectPoint(v, [s.at, ry, 0], pivot)[2];
+      const key3: Vec3 = stack === 'z' ? [rx, ry, s.at] : [s.at, ry, 0];
+      const depth = projectPoint(v, g ? moved(g, key3) : key3, pivot)[2];
       items.push({ depth, shape: { kind: 'slice', key: `${i}${stack}${j}`, path: path.id, matrix: shrink(m) } });
-    });
+    }, moves ? (i) => moves.has(i) : undefined);
+    const face = moves?.get(vol.eyePart);
     // Painted on the surface; each eye goes once the surface under it turns away.
     eyeStates(p, pose).forEach((e, idx) => {
       if (eyeVisible(vol, v, idx)) {
         const z = vol.eyeZ[idx] + EYE_LIFT;
+        const mid: Vec3 = [eyesMid[0], eyesMid[1], z];
         items.push({
-          depth: projectPoint(v, [eyesMid[0], eyesMid[1], z], pivot)[2] + 1e-6,
-          shape: { kind: 'eye', key: idx === 0 ? 'eye-0' : 'eye-1', matrix: shrink(planeMatrix(v, z, pivot)), mark: eyeMark(e) },
+          depth: projectPoint(v, face ? moved(face, mid) : mid, pivot)[2] + 1e-6,
+          // The eyes are painted on the head: they tilt with it.
+          shape: { kind: 'eye', key: idx === 0 ? 'eye-0' : 'eye-1', matrix: shrink(face ? movedMatrix(v, pivot, face, (a, c) => [a, c, z]) : planeMatrix(v, z, pivot)), mark: eyeMark(e) },
         });
       }
     });

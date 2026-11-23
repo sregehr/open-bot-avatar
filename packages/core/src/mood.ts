@@ -13,9 +13,12 @@ const smooth = (t: number) => {
   return x * x * (3 - 2 * x);
 };
 
+/** Length of a change for a rigged character, ms: arms and legs have further to go than eyes. */
+export const LIMB_MS = 820;
+
 /** Eased progress of a mood change from elapsed time (smoothstep, clamped). */
-export function moodProgress(elapsedMs: number): number {
-  return smooth(elapsedMs / MOOD_MS);
+export function moodProgress(elapsedMs: number, length = MOOD_MS): number {
+  return smooth(elapsedMs / length);
 }
 
 /** A state and mood on screen, possibly still easing in over what came before. */

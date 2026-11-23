@@ -23,6 +23,8 @@ export interface AnimatorInput {
   hold?: boolean;
   /** Snap instead of easing. */
   reducedMotion: boolean;
+  /** How long a change of state or mood takes, ms (default MOOD_MS; LIMB_MS suits a rigged character). */
+  changeMs?: number;
 }
 
 export interface AnimatorStep {
@@ -47,7 +49,7 @@ export function createAnimator(): Animator {
   let shown: { state: AvatarState; mood: AvatarMood; blend?: AvatarMotionBlend; since: number; began: number } | null = null;
 
   return {
-    step({ now, target, hold = false, reducedMotion, ...given }) {
+    step({ now, target, hold = false, reducedMotion, changeMs, ...given }) {
       const dt = last === null ? 0 : (now - last) / 1000;
       last = now;
       let moving = false;
@@ -60,7 +62,7 @@ export function createAnimator(): Animator {
           state: shown.state,
           mood: shown.mood,
           age: (now - shown.began) / 1000,
-          blend: shown.blend && { from: shown.blend.from, t: moodProgress(now - shown.since) },
+          blend: shown.blend && { from: shown.blend.from, t: moodProgress(now - shown.since, changeMs) },
         };
         shown = {
           state,
@@ -73,7 +75,7 @@ export function createAnimator(): Animator {
       // An avatar that mounts done starts it at rest, as if it had just finished celebrating; any
       // other state starts afresh (a working bot's first sweep comes a second or two in).
       shown ??= { state, mood, since: now, began: now - (state === 'done' ? DONE_TURN_S * 1000 : 0) };
-      const t = reducedMotion ? 1 : moodProgress(now - shown.since);
+      const t = reducedMotion ? 1 : moodProgress(now - shown.since, changeMs);
       let motionBlend: AvatarMotionBlend | undefined;
       if (shown.blend && t < 1) motionBlend = { from: shown.blend.from, t };
       else shown.blend = undefined;

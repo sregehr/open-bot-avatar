@@ -48,9 +48,42 @@ export interface Pose {
   /** How far the body has given way to a mark, 0..1 each: the exclamation mark and the three dots. */
   bang: number;
   dots: number;
+  /** A rigged character's limbs (see Limbs); all zero for an avatar without a rig. */
+  limbs: Limbs;
 }
 
 /** Every state and mood, in the order hosts list them. */
+/**
+ * Where a rigged character holds its limbs, in degrees from how they are drawn (hanging down).
+ * Arms and legs: how far they are raised out to their own side. `…s` is the swing toward the
+ * viewer. Forearms bend on from the arm (negative folds the hand in toward the body); shins swing
+ * on from the leg (negative is a knee bent back). `head` tilts, positive clockwise.
+ */
+export interface Limbs {
+  head: number;
+  armL: number;
+  armR: number;
+  armLs: number;
+  armRs: number;
+  foreL: number;
+  foreR: number;
+  foreLs: number;
+  foreRs: number;
+  legL: number;
+  legR: number;
+  legLs: number;
+  legRs: number;
+  shinL: number;
+  shinR: number;
+}
+
+const LIMB_KEYS = ['head', 'armL', 'armR', 'armLs', 'armRs', 'foreL', 'foreR', 'foreLs', 'foreRs', 'legL', 'legR', 'legLs', 'legRs', 'shinL', 'shinR'] as const;
+
+/** Limbs as drawn. */
+export function limbsAtRest(): Limbs {
+  return { head: 0, armL: 0, armR: 0, armLs: 0, armRs: 0, foreL: 0, foreR: 0, foreLs: 0, foreRs: 0, legL: 0, legR: 0, legLs: 0, legRs: 0, shinL: 0, shinR: 0 };
+}
+
 export const STATES: readonly AvatarState[] = ['idle', 'thinking', 'working', 'waiting', 'blocked', 'done'];
 export const MOODS: readonly AvatarMood[] = ['neutral', 'happy'];
 
@@ -164,6 +197,11 @@ export interface PoseInput {
   view?: { yaw: number; pitch: number };
   /** Easing in from what was shown before (see blendPoses). */
   blend?: AvatarMotionBlend;
+  /**
+   * The avatar has a rig: it acts its states out with its arms, legs and head, and keeps its body
+   * where an avatar without one gives way to the thinking dots or the blocked mark.
+   */
+  rigged?: boolean;
 }
 
 /**
@@ -185,7 +223,16 @@ export function blendPoses(a: Pose, b: Pose, t: number): Pose {
     blink: m(a.blink, b.blink), squintL: m(a.squintL, b.squintL), squintR: m(a.squintR, b.squintR),
     eyes: { arc: m(a.eyes.arc, b.eyes.arc), slit: m(a.eyes.slit, b.eyes.slit) },
     ribbons: m(a.ribbons, b.ribbons), cage, sweep, bang: m(a.bang, b.bang), dots: m(a.dots, b.dots),
+    limbs: blendLimbs(a.limbs, b.limbs, k),
   };
+}
+
+/** Limbs part way from one hold to the next, eased at both ends so an arm neither jumps off nor stops dead. */
+function blendLimbs(a: Limbs, b: Limbs, k: number): Limbs {
+  const e = k * k * k * (k * (6 * k - 15) + 10);
+  const out = limbsAtRest();
+  for (const key of LIMB_KEYS) out[key] = mix(a[key], b[key], e);
+  return out;
 }
 
 export function computePose(input: PoseInput): Pose {
@@ -267,6 +314,127 @@ function celebration(t: number): number {
   return DONE_SWEEPS * TAU;
 }
 
+/**
+ * A rigged character's body language for each state, written into `L`. Everything is a sum of
+ * slow waves and eased gestures, so limbs never jump; changes of state are eased by blendPoses.
+ */
+function actOut(L: Limbs, c: { state: AvatarState; mood: AvatarMood; seed: number; t: number; reducedMotion: boolean; age: number | null }) {
+  const { state, mood, seed, t, reducedMotion } = c;
+  const wave = (period: number, phase = 0) => (reducedMotion ? 0 : Math.sin((TAU * t) / period + phase));
+  /** A gesture that comes round every `every` seconds or so and lasts `length`: how far into it (seconds), how much of it shows (0..1) and which time round it is. */
+  const gesture = (every: number, length: number, n: number) => {
+    if (reducedMotion) return { into: 0, show: 0, round: 0 };
+    const cycle = every * (1 + 0.35 * noise(seed, n));
+    const at = t + cycle * noise(seed, n + 1);
+    const round = Math.floor(at / cycle), into = at - round * cycle;
+    return { into, show: into < length ? smooth(into / 0.5) * smooth((length - into) / 0.6) : 0, round };
+  };
+  /** Loose arms that breathe, a head that drifts and weight that shifts from foot to foot. */
+  const loose = (pace: number) => {
+    L.armL = 5 + 2.5 * wave(3.4 * pace, -Math.PI / 2);
+    L.armR = 5 + 2.5 * wave(3.4 * pace, -Math.PI / 2 + 0.7);
+    L.foreL = -8 + 3 * wave(4.3 * pace, 1);
+    L.foreR = -8 + 3 * wave(4.9 * pace, 2);
+    L.head = 2.5 * wave(6.3 * pace, 0.5);
+    L.legL = 1.5 * wave(5.3 * pace, 2);
+    L.legR = -1.5 * wave(5.3 * pace, 2);
+  };
+
+  if (state === 'idle' && mood === 'happy') {
+    // Hops with its arms flung up and its knees tucked.
+    const period = 0.92;
+    const p = reducedMotion ? 0.5 : ((t % period) + period) % period / period;
+    const air = 4 * p * (1 - p);
+    L.armL = 48 + 42 * air;
+    L.armR = 48 + 42 * air;
+    L.foreL = L.foreR = 18 - 10 * air;
+    L.legL = L.legR = 9 * air;
+    L.shinL = L.shinR = -26 * air;
+    L.head = 3 * wave(period * 2);
+  } else if (state === 'thinking') {
+    // One hand up at its temple, tapping; the other on its hip; head on one side.
+    const tap = wave(1.3);
+    L.armR = 100 + 3 * tap;
+    L.foreR = 114 + 7 * tap;
+    L.armRs = 8;
+    L.armL = 36;
+    L.foreL = -100;
+    L.head = 8 + 2 * wave(4.1);
+    L.legR = 3;
+    L.legL = 1.5 * wave(5.2);
+  } else if (state === 'working') {
+    // Elbows out and hands busy, pumping one after the other, with a nod to the beat. The swing
+    // toward the viewer stays small: a part turned far out of the plane shows its cross-sections.
+    const beat = wave(0.42);
+    L.armL = 18 + 4 * beat;
+    L.armR = 18 - 4 * beat;
+    L.foreL = 62 + 28 * beat;
+    L.foreR = 62 - 28 * beat;
+    L.armLs = L.armRs = 10;
+    L.foreLs = 14 + 8 * beat;
+    L.foreRs = 14 - 8 * beat;
+    L.head = 2.5 * wave(0.84);
+    L.legL = 2 + 1.5 * beat;
+    L.legR = 2 - 1.5 * beat;
+  } else if (state === 'waiting') {
+    // Hands on hips, a foot tapping, a sigh now and then.
+    const p = reducedMotion ? 0 : ((t % 6.5) + 6.5) % 6.5 / 6.5;
+    const sigh = Math.sin(TAU * clamp(p / 0.33, 0, 1));
+    const tap = reducedMotion ? 0 : Math.max(0, Math.sin((TAU * t) / 0.62)) ** 2;
+    L.armL = L.armR = 36 - 6 * sigh;
+    L.foreL = L.foreR = -98 + 5 * sigh;
+    L.head = 6 + 1.5 * wave(6.4, 2);
+    L.legR = 6;
+    L.legRs = 8 + 9 * tap;
+    L.shinR = -10 * tap;
+  } else if (state === 'blocked') {
+    // A shrug: elbows in, palms up and out, head tipped.
+    L.armL = L.armR = 30 + 2.5 * wave(2.6);
+    L.foreL = L.foreR = 104 + 4 * wave(2.6, 0.8);
+    L.head = -7 + 1.5 * wave(3.9);
+  } else if (state === 'done') {
+    loose(1.25);
+    // While the ribbons fly it cheers, arms up and pumping in turn; then it settles.
+    const since = c.age === null || reducedMotion ? DONE_TURN_S : c.age % (DONE_CYCLE_S * (1 + 0.15 * noise(seed, 31)));
+    const cheer = since < DONE_TURN_S ? smooth(since / 0.7) * smooth((DONE_TURN_S - since) / 0.8) : 0;
+    const pump = wave(0.46);
+    L.armL = mix(L.armL, 148 + 14 * pump, cheer);
+    L.armR = mix(L.armR, 148 - 14 * pump, cheer);
+    L.foreL = mix(L.foreL, 14 * pump, cheer);
+    L.foreR = mix(L.foreR, -14 * pump, cheer);
+    L.legL += 7 * cheer;
+    L.legR += 7 * cheer;
+    L.shinL = L.shinR = -16 * cheer * Math.max(0, wave(0.46));
+  } else {
+    loose(1);
+    // Every so often something of its own, a different one each time round and a different order for each character.
+    const g = gesture(8.5, 2.6, 53);
+    if (g.show > 0) {
+      const which = (g.round + Math.floor(noise(seed, 57) * 3)) % 3;
+      if (which === 0) {
+        // A wave hello.
+        L.armR = mix(L.armR, 128, g.show);
+        L.foreR = mix(L.foreR, 22 + 24 * Math.sin((TAU * g.into) / 0.44), g.show);
+        L.head += 5 * g.show;
+      } else if (which === 1) {
+        // A big stretch.
+        L.armL = mix(L.armL, 152, g.show);
+        L.armR = mix(L.armR, 152, g.show);
+        L.foreL = mix(L.foreL, -12, g.show);
+        L.foreR = mix(L.foreR, -12, g.show);
+        L.head -= 4 * g.show;
+      } else {
+        // Hands on hips, a look about.
+        L.armL = mix(L.armL, 34, g.show);
+        L.armR = mix(L.armR, 34, g.show);
+        L.foreL = mix(L.foreL, -100, g.show);
+        L.foreR = mix(L.foreR, -100, g.show);
+        L.head += 7 * g.show * Math.sin((TAU * g.into) / 2.6);
+      }
+    }
+  }
+}
+
 function statePose(input: PoseInput): Pose {
   const { seed, time, gaze, reducedMotion, view } = input;
   const { state, mood } = resolveLook(input);
@@ -285,6 +453,7 @@ function statePose(input: PoseInput): Pose {
     yaw: BASE_YAW, pitch: BASE_PITCH, roll: 0, lift: 0, sx: 1, sy: 1,
     gazeX: 0, gazeY: 0, blink: 0, squintL: 0, squintR: 0,
     eyes: { arc: mood === 'happy' ? 1 : 0, slit: 0 }, ribbons: 0, cage: 0, sweep: 0, bang: 0, dots: 0,
+    limbs: limbsAtRest(),
   };
   /** The calm pose of a bot with nothing to do: it breathes, sways, blinks and looks around. */
   const rest = (pace: number) => {
@@ -406,6 +575,13 @@ function statePose(input: PoseInput): Pose {
     }
   } else {
     rest(1);
+  }
+
+  if (input.rigged) {
+    // A character says it with its body: no dots or mark takes its place.
+    pose.dots = 0;
+    pose.bang = 0;
+    actOut(pose.limbs, { state, mood, seed, t, reducedMotion, age: Number.isFinite(input.stateAge) ? Math.max(0, input.stateAge as number) : null });
   }
 
   if (given && weight > 0) {
