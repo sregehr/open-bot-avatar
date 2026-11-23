@@ -65,3 +65,16 @@
 .avatar-studio .popover {
   box-shadow: 0 24px 60px rgba(6, 6, 93, 0.45);
 }
+
+/* The one link in the header, to the embed demo: a pill that reads as a way out of the editor. */
+.avatar-studio .site-nav a {
+  padding: 7px 16px;
+  border: 1px solid var(--line-strong);
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+  font-weight: 600;
+}
+
+.avatar-studio .site-nav a:hover {
+  background: rgba(255, 255, 255, 0.18);
+}

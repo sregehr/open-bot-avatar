@@ -14,6 +14,9 @@
       header { display: flex; align-items: center; gap: 12px; padding: 14px 28px; background: #fff; border-bottom: 1px solid var(--line); }
       header strong { font-size: 20px; font-weight: 800; letter-spacing: -0.03em; color: var(--navy); }
       header span { color: var(--muted); }
+      header a { margin-left: auto; padding: 7px 16px; border-radius: 999px; background: var(--purple); color: #fff; font-weight: 600; text-decoration: none; }
+      header a:hover { background: #5d1ebc; }
+      header a:focus-visible { outline: 2px solid var(--purple); outline-offset: 2px; }
       main { max-width: 1080px; margin: 0 auto; padding: 28px; display: grid; gap: 28px; }
       h1 { margin: 0 0 4px; font-size: 26px; letter-spacing: -0.02em; }
       h2 { margin: 0 0 12px; font-size: 17px; }
@@ -35,7 +38,7 @@
     </style>
   </head>
   <body>
-    <header><strong>docebo</strong><span>AgentHub (demo host page)</span></header>
+    <header><strong>docebo</strong><span>AgentHub (demo host page)</span><a id="editor" href="http://localhost:5173/open-bot-avatar/">Avatar editor</a></header>
     <main>
       <div>
         <h1>Your agents</h1>
@@ -72,6 +75,9 @@
     </main>
     <script type="module">
       import "./src/index.ts";
+
+      // The editor (apps/site) is served elsewhere: its dev server, unless VITE_EDITOR_URL names another place.
+      if (import.meta.env.VITE_EDITOR_URL) document.querySelector("#editor").href = import.meta.env.VITE_EDITOR_URL;
 
       const preview = document.querySelector("#preview");
       const states = document.querySelector("#states");
