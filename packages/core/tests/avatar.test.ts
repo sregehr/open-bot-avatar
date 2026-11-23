@@ -48,7 +48,10 @@ describe('examples', () => {
     const design = readFileSync('skills/generate-avatar/references/system-prompt.md', 'utf8');
     const blocks = [...design.matchAll(/```json\n(.*?)\n```/gs)].map((m) => JSON.parse(m[1]));
     expect(blocks.length).toBeGreaterThanOrEqual(2);
-    for (const b of blocks) expect(b).toEqual(getExample(b.id));
+    // An object example is one of the engine's own; a character example is its gallery file.
+    for (const b of blocks) {
+      expect(b).toEqual(getExample(b.id) ?? JSON.parse(readFileSync(`gallery/${b.id}.json`, 'utf8')));
+    }
   });
 });
 
