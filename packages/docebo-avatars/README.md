@@ -20,6 +20,12 @@ pnpm --filter docebo-agent-avatars build   # dist/docebo-agent-avatars.js (ES mo
 pnpm --filter docebo-agent-avatars dev     # the demo host page (index.html), from source
 ```
 
+The demo page is a mock Docebo shell that shows where the avatars live: the AI panel docked on the
+right, pages that embed an agent (a home hero, a course, the lesson creator) and AgentHub. Its
+controls switch the avatar style, color, agent and state, "Run a task" plays one agent run from
+thinking to done, and "Embed code" prints the markup for the current choice. The page lives in
+`index.html` and `demo/`; it is not part of the bundle.
+
 The demo page and the editor (`apps/site`) link to each other. Each assumes the other's dev server
 (`localhost:5180` and `localhost:5173/open-bot-avatar/`); set `VITE_EMBED_URL` for the editor and
 `VITE_EDITOR_URL` for the demo when they are served somewhere else.
