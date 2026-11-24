@@ -27,6 +27,13 @@ docebo-agent-avatar { flex: none; }
 .seg button[aria-pressed="true"] { background: #f6f5f2; color: var(--ink); font-weight: 600; }
 .bar select { height: 31px; padding: 0 8px; border: 0; border-radius: 9px; background: rgba(255, 255, 255, 0.1); }
 .bar select option { color: var(--ink); }
+.pick { position: relative; }
+.pick-btn { display: flex; align-items: center; gap: 8px; height: 31px; padding: 0 10px 0 4px; border: 0; border-radius: 9px; background: rgba(255, 255, 255, 0.1); white-space: nowrap; }
+.pick-btn:hover, .pick-btn[aria-expanded="true"] { background: rgba(255, 255, 255, 0.2); }
+.pick-btn i { font-style: normal; font-size: 11px; opacity: 0.7; }
+.pick-pop { position: absolute; z-index: 10; top: calc(100% + 8px); left: 0; width: min(520px, calc(100vw - 32px)); max-height: 70vh; overflow: auto; padding: 16px; border-radius: 14px; background: #fff; color: var(--ink); box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35); }
+.pick-pop p { margin-bottom: 12px; color: var(--muted); }
+.pick-pop b { color: var(--ink); }
 .bar .checks { display: flex; gap: 12px; height: 31px; align-items: center; }
 .bar label { display: flex; gap: 6px; align-items: center; white-space: nowrap; }
 .bar input[type="checkbox"] { accent-color: #b98cff; }
@@ -194,6 +201,9 @@ button.mini:hover, button.tile:hover { border-color: #c9c1b4; }
   body { display: block; }
   .app { min-height: 100vh; }
   .bar > * { max-width: 100%; }
+  .bar { position: relative; }
+  .pick { position: static; }
+  .pick-pop { left: 16px; top: auto; }
   .seg { flex-wrap: wrap; }
   .bar .go { margin-left: 0; flex-wrap: wrap; }
   .nav { overflow-x: auto; }

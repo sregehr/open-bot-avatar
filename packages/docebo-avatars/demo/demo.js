@@ -10,7 +10,7 @@ const STONE = '#e1dbd2';
 /** The agents of the demo. `color` is the agent's product color; `task` scripts one run in the AI panel. */
 const AGENTS = [
   {
-    id: 'harmony', name: 'Harmony', role: 'Platform guidance', color: '#6a25dc', group: 'prebuilt', idle: 'Ready to help',
+    id: 'harmony', name: 'AI Assistant', role: 'Platform guidance', color: '#6a25dc', group: 'prebuilt', idle: 'Ready to help',
     about: 'Answers questions about the platform and takes admin actions for you.',
     prompt: 'What can I help you accomplish today?',
     asks: ['Who is overdue on compliance training?', 'Summarise this week’s enrolments', 'Set up a new learning plan'],
@@ -107,6 +107,8 @@ const S = {
   // Docked beside the page where there is room; closed behind the ✦ button on narrow screens.
   panel: matchMedia('(min-width: 1081px)').matches,
   code: false,
+  /** The avatar picker under the controls is open. */
+  picking: false,
   detail: null,
   nudgeOff: false,
   /** Avatars picked by hand in AgentHub; they win over the style. */
@@ -146,10 +148,10 @@ function home() {
   return `<div class="page">
     <section class="hero">
       <div>
-        <span class="agent-badge">${A('harmony', 22, { fixed: 'idle', still: true })}Harmony</span>
+        <span class="agent-badge">${A('harmony', 22, { fixed: 'idle', still: true })}AI Assistant</span>
         <p class="hello">${hello}, Jamie</p>
         <h1>${agent('harmony').prompt}</h1>
-        <form class="ask" data-ask="harmony"><input aria-label="Ask Harmony" placeholder="Ask anything, or describe a task" /><button class="send" aria-label="Send">${svg(ICON.send)}</button></form>
+        <form class="ask" data-ask="harmony"><input aria-label="Ask AI Assistant" placeholder="Ask anything, or describe a task" /><button class="send" aria-label="Send">${svg(ICON.send)}</button></form>
         <div class="chips">${agent('harmony').asks.map((t) => `<button class="chip" data-act="ask" data-id="harmony" data-text="${esc(t)}">${esc(t)}</button>`).join('')}</div>
       </div>
       ${A('harmony', '')}
@@ -267,6 +269,11 @@ function open(id) {
     S.run++;
     S.thread = [];
     S.active = id;
+    // AgentHub's detail page follows the agent the controls are on.
+    if (S.detail) {
+      S.detail = id;
+      drawScene();
+    }
   }
   S.panel = true;
   drawPanel();
@@ -327,6 +334,7 @@ const BANNER = {
 };
 
 function refresh() {
+  for (const el of $$('[data-active]')) el.dataset.agent = S.active;
   for (const el of $$('docebo-agent-avatar[data-agent]')) {
     const id = el.dataset.agent;
     attr(el, 'avatar', avatarOf(id));
@@ -343,7 +351,12 @@ function refresh() {
     el.dataset.state = S.states[el.dataset.pill];
     el.textContent = LABEL[el.dataset.state];
   }
-  for (const el of $$('[data-avatar-name]')) el.textContent = getAvatar(avatarOf(S.detail))?.name ?? '';
+  const worn = getAvatar(avatarOf(S.active))?.name ?? '';
+  for (const el of $$('[data-avatar-name], [data-active-avatar]')) el.textContent = worn;
+  for (const el of $$('[data-active-name]')) el.textContent = agent(S.active).name;
+  for (const el of $$('docebo-avatar-picker')) if (el.value !== avatarOf(S.active)) el.value = avatarOf(S.active);
+  $('.pick-pop').hidden = !S.picking;
+  $('.pick-btn').setAttribute('aria-expanded', String(S.picking));
 
   // The thinking card in the panel follows the active agent's state.
   const a = agent(S.active), state = S.states[S.active];
@@ -396,6 +409,8 @@ function build() {
     <div class="ctl"><span>Avatar style</span>${seg('style', Object.entries(STYLES).map(([v, s]) => [v, s.label]))}</div>
     <div class="ctl"><span>Colour</span>${seg('color', Object.entries(COLORS))}</div>
     <label class="ctl"><span>Agent</span><select id="agent">${AGENTS.map((a) => `<option value="${a.id}">${a.name}</option>`).join('')}</select></label>
+    <div class="ctl pick"><span>Avatar</span><button type="button" class="pick-btn" data-act="pick" aria-haspopup="dialog" aria-expanded="false"><docebo-agent-avatar data-agent="harmony" data-active data-fixed="idle" data-still size="24"></docebo-agent-avatar><span data-active-avatar></span><i aria-hidden="true">▾</i></button>
+      <div class="pick-pop" role="dialog" aria-label="Choose an avatar" hidden><p><b data-active-name></b> wears this avatar on every page.</p><docebo-avatar-picker></docebo-avatar-picker></div></div>
     <div class="ctl"><span>State</span>${seg('state', STATES.map((s) => [s, LABEL[s]]))}</div>
     <div class="ctl"><span>Options</span><div class="checks">${[['follow', 'Follow pointer'], ['flat', 'Flat'], ['happy', 'Happy']].map(([k, l]) => `<label><input type="checkbox" data-opt="${k}"${S[k] ? ' checked' : ''} />${l}</label>`).join('')}</div></div>
     <div class="go"><button class="btn primary" data-act="run">Run a task</button><button class="btn" data-act="code">Embed code</button><a class="btn" id="editor" href="http://localhost:5173/open-bot-avatar/">Avatar editor</a></div>
@@ -411,6 +426,10 @@ function build() {
 
   document.addEventListener('click', (event) => {
     const target = event.target.closest('[data-act], [data-scene], .seg button');
+    if (S.picking && !event.target.closest('.pick')) {
+      S.picking = false;
+      refresh();
+    }
     if (!target) return;
     if (target.dataset.scene) {
       S.scene = target.dataset.scene;
@@ -425,10 +444,7 @@ function build() {
         return setState(S.active, target.dataset.v);
       }
       S[key] = target.dataset.v;
-      if (key === 'style') {
-        S.picked = {};
-        for (const picker of $$('docebo-avatar-picker')) picker.value = avatarOf(S.detail);
-      }
+      if (key === 'style') S.picked = {};
       return refresh();
     }
     const { act, id, text } = target.dataset;
@@ -447,6 +463,9 @@ function build() {
       S.thread = [];
       S.states[S.active] = 'idle';
       drawPanel();
+    } else if (act === 'pick') {
+      S.picking = !S.picking;
+      refresh();
     } else if (act === 'code') {
       S.code = !S.code;
       refresh();
@@ -475,10 +494,16 @@ function build() {
     else if (el.dataset?.opt) {
       S[el.dataset.opt] = el.checked;
       refresh();
-    } else if (el.localName === 'docebo-avatar-picker' && S.detail) {
-      S.picked[S.detail] = event.detail.id;
+    } else if (el.localName === 'docebo-avatar-picker') {
+      S.picked[S.active] = event.detail.id;
       refresh();
     }
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape' || !S.picking) return;
+    S.picking = false;
+    refresh();
+    $('.pick-btn').focus();
   });
 
   drawScene();
