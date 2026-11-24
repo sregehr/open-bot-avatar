@@ -77,7 +77,7 @@ Size is judged by **outline extent**, not filled area. A thin loop or frame has 
 
 ## Characters
 
-A character is a small figure the engine brings to life: it waves and stretches when idle, puts a hand to its temple while thinking, shrugs when blocked and cheers when done. It can only do that if you draw it the way the rig expects.
+A character is a small figure the engine brings to life: it waves and stretches when idle, rests its chin in its hand while thinking, shrugs when blocked and cheers when done. It can only do that if you draw it the way the rig expects.
 
 **Parts, each its own subpath.** Draw them in this order and give every moving one a joint:
 
@@ -97,9 +97,10 @@ That is 12 parts, or up to 14 with headwear. `part` in the rig is a part's place
 - A limb is two tapered pieces that meet at the same thickness, so a straight arm or leg reads as one smooth shape and bends cleanly at the joint. Each piece is two circles (one at each joint) joined by their outer tangents.
 - An arm starts slim at the shoulder and flares into the hand: about 6.5 thick at the shoulder, 7 at the elbow and 9 at the rounded end.
 - A leg does the opposite, tapering to the ankle: about 9 thick at the hip, 8.5 at the knee and 7.5 at the ankle. Legs are drawn exactly vertical, so the engine makes them round.
-- A shoe is a dome on a flat sole standing on y 92: about 12 wide and 7 tall, centered under the ankle, at least 2.5 units wider than the ankle on each side.
+- A shoe is a dome on a flat sole standing on y 92: about 10.5 wide and 6.5 tall, centered under the ankle, at least 2.5 units wider than the ankle on each side.
 - The torso is a soft block with generously rounded corners (radius about 8), a little wider at the shoulders than at the hips, and smaller than the head.
-- The shoulder joint sits about 1 unit inside the torso's top corner, and the hip joint 2 units above its bottom edge, so a turning limb never opens a gap. Mirror the right side from the left about x = 50.
+- Limbs are short and the same size on every build: each piece of an arm about 7 long, a thigh 9.5 (its top 5 units of it inside the torso) and a shin 5.5. A taller build has a slightly longer torso, not longer limbs, and the torso stays small enough to suit them: no more than about 29 tall and 24 wide.
+- The shoulder joint sits about 2 units inside the torso's top corner, and the hip joint 5 units above its bottom edge: the round top of a limb is buried in the torso, so the limb grows out of the body and a turning limb never opens a gap. Mirror the right side from the left about x = 50.
 
 **The head carries the face** and is the biggest single part: bigger in area than the torso. The eyes sit a little above its center. A smaller head needs smaller eyes: `scale` is the head's width divided by 50 (1 on a head 50 wide, 0.8 on 40, 0.65 on 31; never below 0.6), with `spacing` about 0.3 of the head's width.
 
@@ -107,13 +108,13 @@ That is 12 parts, or up to 14 with headwear. `part` in the rig is a part's place
 
 | Build | Reads as | Head | Torso (shoulders, hips) | Arm (shoulder, elbow, end) | Leg (hip, knee, ankle) |
 | --- | --- | --- | --- | --- | --- |
-| Buddy | Toy: big head, small body | circle r 25 at 50,34 | x 39.5..60.5 at y 55, x 40.5..59.5 at y 77 | 40.4,60.5 · 36.8,66.5 · 33.6,72.5 | 44.4,75 · 44.4,81.5 · 44.4,87 |
-| Pal | In between | circle r 19.5 at 50,28.5 | x 38.5..61.5 at y 45, x 39.5..60.5 at y 70 | 39.6,51 · 35.6,59.5 · 32,68 | 43.8,68 · 43.8,77.5 · 43.8,86.5 |
-| Figure | Closest to a person: legs as long as the torso | circle r 15 at 50,24 | x 37.5..62.5 at y 36, x 39.2..60.8 at y 67 | 38.8,42.5 · 35,52.5 · 31.6,62.5 | 43.6,65 · 43.6,76 · 43.6,86.5 |
+| Buddy | Toy: big head, small body | circle r 25 at 50,34 | x 39.5..60.5 at y 55, x 40.5..59.5 at y 77 | 42,61.1 · 36.8,66.5 · 33.6,72.5 | 44.4,72 · 44.4,81.5 · 44.4,87 |
+| Pal | In between | circle r 23.3 at 50,32.3 | x 38.7..61.3 at y 52.2, x 39.7..60.3 at y 77.2 | 41,58.7 · 36.2,64.2 · 33,70.2 | 43.9,72 · 43.9,81.5 · 43.9,87 |
+| Figure | The tallest body: a smaller head on a longer torso | circle r 21.7 at 50,30.7 | x 38.2..61.8 at y 48.9, x 39.8..60.2 at y 77.4 | 40.6,55.3 · 35.8,60.8 · 32.6,66.8 | 44,72 · 44,81.5 · 44,87 |
 
 The head need not be a circle: a rounded square, a hexagon or a drop of the same size gives a different character, and so does a broader torso (which carries the shoulders out with it) or a longer one (a coat that widens to the hem).
 
-**Headwear needs room.** For something that sits on top of the head (ears, a bun, a hat), make the head about 2.5 units smaller in radius and move its center 2.5 down, so its bottom edge stays where it was and the top of the headwear stays inside y 8; the torso and limbs do not move. Headwear stays clear of the face: it sits above or beside the eyes, never over them, and changes the outline (a cap's brim pokes out to one side, a hard hat's rim to both). Where it meets the head, step out by 3 units or more, or sit flush: never a sliver.
+**Headwear needs room.** For something that sits on top of the head (ears, a bun, a hat), make the head about 4 units smaller in radius and move its center 4 down, so its bottom edge stays where it was and the top of the headwear stays inside y 8; the torso and limbs do not move. Headwear stays clear of the face: it sits above or beside the eyes, never over them, and changes the outline (a cap's brim pokes out to one side, a hard hat's rim to both). Where it meets the head, step out by 3 units or more, or sit flush: never a sliver.
 
 ## Structure
 
@@ -183,5 +184,5 @@ Watering Can (side view; the can body carries the face; handle loop and spout ar
 Scout (a character, Figure build: head, torso, then upper arm, forearm, thigh, shin and shoe for the left and for the right, with a joint for every part but the torso):
 
 ```json
-{"version":1,"id":"figure-scout","name":"Scout","body":{"path":"M35 24A15 15 0 0 1 65 24A15 15 0 0 1 35 24ZM37.9 44Q37.5 36 45.5 36L54.5 36Q62.5 36 62.1 44L61.2 59Q60.8 67 52.8 67L47.2 67Q39.2 67 38.8 59ZM41.9 43.6L38.3 53.7A3.5 3.5 0 0 1 31.8 51.2L35.7 41.3A3.3 3.3 0 1 1 41.9 43.6ZM38.4 53.3L35.9 63.6A4.4 4.4 0 0 1 27.6 60.7L31.8 51.1A3.5 3.5 0 1 1 38.4 53.3ZM48.3 65.2L47.8 76.2A4.2 4.2 0 0 1 39.4 76.2L38.9 65.2A4.7 4.7 0 1 1 48.3 65.2ZM47.8 76.2L47.3 86.7A3.7 3.7 0 0 1 39.9 86.7L39.4 76.2A4.2 4.2 0 1 1 47.8 76.2ZM37.5 90A6.1 5 0 0 1 49.7 90Q49.7 92 47.7 92H39.5Q37.5 92 37.5 90ZM64.3 41.3L68.2 51.2A3.5 3.5 0 0 1 61.7 53.7L58.1 43.6A3.3 3.3 0 1 1 64.3 41.3ZM68.2 51.1L72.4 60.7A4.4 4.4 0 0 1 64.1 63.6L61.6 53.3A3.5 3.5 0 1 1 68.2 51.1ZM61.1 65.2L60.6 76.2A4.2 4.2 0 0 1 52.2 76.2L51.7 65.2A4.7 4.7 0 1 1 61.1 65.2ZM60.6 76.2L60.1 86.7A3.7 3.7 0 0 1 52.7 86.7L52.2 76.2A4.2 4.2 0 1 1 60.6 76.2ZM50.3 90A6.1 5 0 0 1 62.5 90Q62.5 92 60.5 92H52.3Q50.3 92 50.3 90Z"},"eyes":{"x":50,"y":23.4,"spacing":8,"scale":0.7},"rig":[{"part":0,"role":"head","x":50,"y":36},{"part":2,"role":"arm-l","x":38.8,"y":42.5},{"part":3,"role":"forearm-l","x":35,"y":52.5},{"part":4,"role":"leg-l","x":43.6,"y":65},{"part":5,"role":"shin-l","x":43.6,"y":76},{"part":6,"role":"shin-l","x":43.6,"y":76},{"part":7,"role":"arm-r","x":61.2,"y":42.5},{"part":8,"role":"forearm-r","x":65,"y":52.5},{"part":9,"role":"leg-r","x":56.4,"y":65},{"part":10,"role":"shin-r","x":56.4,"y":76},{"part":11,"role":"shin-r","x":56.4,"y":76}]}
+{"version":1,"id":"figure-scout","name":"Scout","body":{"path":"M28.3 30.7A21.7 21.7 0 0 1 71.7 30.7A21.7 21.7 0 0 1 28.3 30.7ZM38.6 56.9Q38.2 48.9 46.2 48.9L53.8 48.9Q61.8 48.9 61.4 56.9L60.6 69.4Q60.2 77.4 52.2 77.4L47.8 77.4Q39.8 77.4 39.4 69.4ZM43.1 57.4L38.5 63A3.5 3.5 0 0 1 33.2 58.4L38.2 53A3.3 3.3 0 1 1 43.1 57.4ZM39.1 62.1L36.6 68.4A4.3 4.3 0 0 1 29.1 64.3L32.9 58.8A3.5 3.5 0 1 1 39.1 62.1ZM48.4 72.1L48.1 81.6A4.1 4.1 0 0 1 39.9 81.6L39.6 72.1A4.4 4.4 0 1 1 48.4 72.1ZM48.1 81.8L47.7 87.3A3.7 3.7 0 0 1 40.3 87.3L39.9 81.8A4.1 4.1 0 1 1 48.1 81.8ZM38.7 90A5.3 4.6 0 0 1 49.3 90Q49.3 92 47.3 92H40.7Q38.7 92 38.7 90ZM61.8 53L66.8 58.4A3.5 3.5 0 0 1 61.5 63L56.9 57.4A3.3 3.3 0 1 1 61.8 53ZM67.1 58.8L70.9 64.3A4.3 4.3 0 0 1 63.4 68.4L60.9 62.1A3.5 3.5 0 1 1 67.1 58.8ZM60.4 72.1L60.1 81.6A4.1 4.1 0 0 1 51.9 81.6L51.6 72.1A4.4 4.4 0 1 1 60.4 72.1ZM60.1 81.8L59.7 87.3A3.7 3.7 0 0 1 52.3 87.3L51.9 81.8A4.1 4.1 0 1 1 60.1 81.8ZM50.7 90A5.3 4.6 0 0 1 61.3 90Q61.3 92 59.3 92H52.7Q50.7 92 50.7 90Z"},"eyes":{"x":50,"y":29.8,"spacing":11.6,"scale":0.9},"rig":[{"part":0,"role":"head","x":50,"y":48.1},{"part":2,"role":"arm-l","x":40.6,"y":55.3},{"part":3,"role":"forearm-l","x":35.8,"y":60.8},{"part":4,"role":"leg-l","x":44,"y":72},{"part":5,"role":"shin-l","x":44,"y":81.5},{"part":6,"role":"shin-l","x":44,"y":81.5},{"part":7,"role":"arm-r","x":59.4,"y":55.3},{"part":8,"role":"forearm-r","x":64.2,"y":60.8},{"part":9,"role":"leg-r","x":56,"y":72},{"part":10,"role":"shin-r","x":56,"y":81.5},{"part":11,"role":"shin-r","x":56,"y":81.5}]}
 ```

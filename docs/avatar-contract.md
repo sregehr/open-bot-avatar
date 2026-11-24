@@ -33,7 +33,7 @@ A character with limbs can add `rig`: a list of joints, each naming one outline 
 - `role` is one of `head`, `arm-l`, `arm-r`, `forearm-l`, `forearm-r`, `leg-l`, `leg-r`, `shin-l`, `shin-r` (`-l` and `-r` are the left and right of the screen). A forearm moves with the arm of its side and a shin with the leg. Several parts may share a role: a shoe takes its shin's role and joint, a hat the head's.
 - `x`, `y` is the joint, in viewBox units. Draw limbs hanging down at rest.
 
-A rigged avatar acts its states out with its body (a hand at its temple while thinking, a shrug when blocked) and keeps its body where other avatars give way to the thinking dots or the blocked mark. The canvas and SVG renderers move the limbs; the CSS scene renderer draws them at rest.
+A rigged avatar acts its states out with its body (chin in hand while thinking, a shrug when blocked) and keeps its body where other avatars give way to the thinking dots or the blocked mark. The canvas and SVG renderers move the limbs; the CSS scene renderer draws them at rest.
 
 Before rendering imported definitions, call `validateAvatar`. It returns `{ ok: true, value }` with the normalized definition or `{ ok: false, errors }` with validation errors.
 

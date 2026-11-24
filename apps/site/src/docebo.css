@@ -78,3 +78,15 @@
 .avatar-studio .site-nav a:hover {
   background: rgba(255, 255, 255, 0.18);
 }
+
+/* Seven pills in the state row: a little tighter than the studio's six, so they stay on one line. */
+.avatar-studio .pills-states .pill {
+  padding-inline: 9px;
+  white-space: nowrap;
+}
+
+@media (min-width: 481px) {
+  .avatar-studio .pills-states {
+    flex-wrap: nowrap;
+  }
+}

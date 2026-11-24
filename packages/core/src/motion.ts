@@ -57,7 +57,8 @@ export interface Pose {
  * Where a rigged character holds its limbs, in degrees from how they are drawn (hanging down).
  * Arms and legs: how far they are raised out to their own side. `…s` is the swing toward the
  * viewer. Forearms bend on from the arm (negative folds the hand in toward the body); shins swing
- * on from the leg (negative is a knee bent back). `head` tilts, positive clockwise.
+ * on from the leg (negative is a knee bent back). `head` tilts, positive clockwise. `arm…z` holds
+ * a whole arm out in front of the body, in viewBox units, so a hand can come round to the chest or the chin.
  */
 export interface Limbs {
   head: number;
@@ -69,6 +70,8 @@ export interface Limbs {
   foreR: number;
   foreLs: number;
   foreRs: number;
+  armLz: number;
+  armRz: number;
   legL: number;
   legR: number;
   legLs: number;
@@ -77,11 +80,11 @@ export interface Limbs {
   shinR: number;
 }
 
-const LIMB_KEYS = ['head', 'armL', 'armR', 'armLs', 'armRs', 'foreL', 'foreR', 'foreLs', 'foreRs', 'legL', 'legR', 'legLs', 'legRs', 'shinL', 'shinR'] as const;
+const LIMB_KEYS = ['head', 'armL', 'armR', 'armLs', 'armRs', 'foreL', 'foreR', 'foreLs', 'foreRs', 'armLz', 'armRz', 'legL', 'legR', 'legLs', 'legRs', 'shinL', 'shinR'] as const;
 
 /** Limbs as drawn. */
 export function limbsAtRest(): Limbs {
-  return { head: 0, armL: 0, armR: 0, armLs: 0, armRs: 0, foreL: 0, foreR: 0, foreLs: 0, foreRs: 0, legL: 0, legR: 0, legLs: 0, legRs: 0, shinL: 0, shinR: 0 };
+  return { head: 0, armL: 0, armR: 0, armLs: 0, armRs: 0, foreL: 0, foreR: 0, foreLs: 0, foreRs: 0, armLz: 0, armRz: 0, legL: 0, legR: 0, legLs: 0, legRs: 0, shinL: 0, shinR: 0 };
 }
 
 export const STATES: readonly AvatarState[] = ['idle', 'thinking', 'working', 'waiting', 'blocked', 'done'];
@@ -352,16 +355,19 @@ function actOut(L: Limbs, c: { state: AvatarState; mood: AvatarMood; seed: numbe
     L.shinL = L.shinR = -26 * air;
     L.head = 3 * wave(period * 2);
   } else if (state === 'thinking') {
-    // One hand up at its temple, tapping; the other on its hip; head on one side.
+    // Chin in hand: one upper arm points forward, the elbow bends about a right angle and the
+    // forearm comes up and in, so the hand rests against the chin, tapping; the other hand on its hip.
     const tap = wave(1.3);
-    L.armR = 100 + 3 * tap;
-    L.foreR = 114 + 7 * tap;
-    L.armRs = 8;
-    L.armL = 36;
-    L.foreL = -100;
-    L.head = 8 + 2 * wave(4.1);
-    L.legR = 3;
-    L.legL = 1.5 * wave(5.2);
+    L.armL = -15 + 1.2 * tap;
+    L.armLs = 60;
+    L.foreL = -98 - 3 * tap;
+    L.foreLs = 30;
+    L.armLz = 4;
+    L.armR = 36;
+    L.foreR = -100;
+    L.head = -3 + 1.5 * wave(4.1);
+    L.legL = 3;
+    L.legR = 1.5 * wave(5.2);
   } else if (state === 'working') {
     // Elbows out and hands busy, pumping one after the other, with a nod to the beat. The swing
     // toward the viewer stays small: a part turned far out of the plane shows its cross-sections.

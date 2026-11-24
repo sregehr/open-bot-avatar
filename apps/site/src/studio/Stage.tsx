@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent, typ
 import type { AvatarDefinition, AvatarMood, AvatarState } from "open-bot-avatar";
 import { BotAvatar } from "../BotAvatar";
 import { Icon } from "./ui";
-import { FaceToggle, MOODS, STATES, StatePills } from "./pickers";
+import { EXPRESSIONS, StatePills, lookOf } from "./pickers";
 
 export type ViewAngle = { yaw: number; pitch: number };
 
@@ -23,9 +23,9 @@ interface StageProps {
   reduced: boolean;
   view: ViewAngle;
   onView: (view: ViewAngle) => void;
-  onState: (state: AvatarState) => void;
-  onMood: (mood: AvatarMood) => void;
-  /** Shown under the state and mood (the avatar's actions). */
+  /** A pill of the state row was picked: the state and mood it stands for. */
+  onLook: (look: { state: AvatarState; mood: AvatarMood }) => void;
+  /** Shown under the state row (the avatar's actions). */
   children?: ReactNode;
 }
 
@@ -34,7 +34,7 @@ const clampPitch = (p: number) => Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, p
 /** Keep yaw in -π..π so a reset never spins the long way round. */
 const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
 
-export function Stage({ definition, color, depth, shading, grain, shadow, state, mood, followCursor, reducedMotion, reduced, view, onView, onState, onMood, children }: StageProps) {
+export function Stage({ definition, color, depth, shading, grain, shadow, state, mood, followCursor, reducedMotion, reduced, view, onView, onLook, children }: StageProps) {
   const drag = useRef<{ id: number; x: number; y: number; start: ViewAngle } | null>(null);
   const [dragging, setDragging] = useState(false);
   const easing = useRef(0);
@@ -83,21 +83,13 @@ export function Stage({ definition, color, depth, shading, grain, shadow, state,
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
-    // 1–6 pick a state, M (Shift+M backwards) the next mood.
+    // 1–7 pick a pill of the state row.
     if (!e.ctrlKey && !e.metaKey && !e.altKey) {
-      const pick = /^[1-9]$/.test(e.key) ? STATES[Number(e.key) - 1] : undefined;
+      const pick = /^[1-9]$/.test(e.key) ? EXPRESSIONS[Number(e.key) - 1] : undefined;
       if (pick) {
         e.preventDefault();
-        onState(pick.value);
+        onLook(lookOf(pick.value));
         setSaid(pick.label);
-        return;
-      }
-      if (e.key === "m" || e.key === "M") {
-        e.preventDefault();
-        const at = MOODS.findIndex((m) => m.value === mood);
-        const next = MOODS[(at + (e.shiftKey ? -1 : 1) + MOODS.length) % MOODS.length];
-        onMood(next.value);
-        setSaid(`${next.label} mood`);
         return;
       }
     }
@@ -126,7 +118,7 @@ export function Stage({ definition, color, depth, shading, grain, shadow, state,
       tabIndex={0}
       role="group"
       aria-roledescription="3D preview"
-      aria-label={`${definition.name}. Drag or use arrow keys to turn; Home resets the view; 1 to 6 pick a state; M changes the mood.`}
+      aria-label={`${definition.name}. Drag or use arrow keys to turn; Home resets the view; 1 to 7 pick a state.`}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={endDrag}
@@ -150,7 +142,6 @@ export function Stage({ definition, color, depth, shading, grain, shadow, state,
         reducedMotion={reducedMotion}
         label=""
       />
-      <FaceToggle mood={mood} onMood={onMood} />
       <button
         type="button"
         className="stage-reset"
@@ -172,7 +163,7 @@ export function Stage({ definition, color, depth, shading, grain, shadow, state,
       <h1 className="sr-only">{definition.name}</h1>
       {preview}
       <div className="stage-picks">
-        <StatePills state={state} onState={onState} />
+        <StatePills state={state} mood={mood} onLook={onLook} />
       </div>
       {children}
       <span className="sr-only" role="status">

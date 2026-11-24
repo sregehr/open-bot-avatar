@@ -68,6 +68,8 @@ interface Prepared {
   detail: Map<string, boolean[]>;
   /** Where the ribbons' hoops are centred and how far the body reaches from there (see ribbonRims). */
   rims: () => { work: Rim; cage: Rim };
+  /** How far each arm of a rigged body can be raised and bent before it runs into the head (see armReach). */
+  reach: () => { l?: ArmReach; r?: ArmReach };
 }
 
 const cache = new Map<string, Prepared>();
@@ -138,7 +140,7 @@ function prepare(definition: AvatarDefinition, depth: number): Prepared {
   const vol = buildVolume(def, depth / DEFAULT_DEPTH, body);
   const id = `oba-${hashString(`${def.id}|${def.body.path}|${depth}`).toString(36)}`;
   const ids = new Map<string, string>();
-  for (const part of vol.parts) for (const s of [...part.zSlices, ...part.xSlices]) if (!ids.has(s.d)) ids.set(s.d, `${id}-${ids.size}`);
+  for (const part of vol.parts) for (const s of [...part.zSlices, ...part.xSlices, ...(part.ySlices ?? [])]) if (!ids.has(s.d)) ids.set(s.d, `${id}-${ids.size}`);
   const prepared: Prepared = {
     def,
     vol,
@@ -148,6 +150,7 @@ function prepare(definition: AvatarDefinition, depth: number): Prepared {
     ids,
     detail: new Map(),
     rims: lazy(() => ribbonRims(body.polys, vol.bounds)),
+    reach: lazy(() => ({ l: armReach(def, vol, 'l'), r: armReach(def, vol, 'r') })),
   };
   if (cache.size >= 64) cache.delete(cache.keys().next().value as string);
   cache.set(key, prepared);
@@ -213,8 +216,94 @@ function joint(px: number, py: number, turn: number, swing: number): Rigid {
   return g;
 }
 
+/**
+ * How far an arm goes before it meets the head: `max` is the highest it can be raised out straight,
+ * and `lo`/`hi` how far its forearm can then bend each way, every REACH_STEP degrees of raise from 0.
+ */
+interface ArmReach { max: number; lo: number[]; hi: number[] }
+const REACH_STEP = 5;
+/** Room kept between an arm and the head, viewBox units. */
+const REACH_GAP = 0.8;
+/** Over how many degrees a raise eases into its limit instead of stopping dead. */
+const REACH_EASE = 22;
+
+/**
+ * A character's head is often wider than its shoulders, so an arm raised overhead would pass
+ * through it. Measured once per character, on the drawing: the arm is turned up a step at a time
+ * until its elbow or hand would touch the head (or what the head wears), and at each step the
+ * forearm is bent each way until the hand would.
+ */
+function armReach(def: AvatarDefinition, vol: Volume, side: 'l' | 'r'): ArmReach | undefined {
+  const rig = def.rig ?? [];
+  const sh = rig.find((j) => j.role === `arm-${side}`), fo = rig.find((j) => j.role === `forearm-${side}`);
+  const heads = rig.filter((j) => j.role === 'head').map((j) => vol.parts[j.part]);
+  if (!sh || !fo || !heads.length) return undefined;
+  const arm = vol.parts[sh.part], fore = vol.parts[fo.part];
+  const sign = side === 'l' ? 1 : -1;
+  const ring = [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1], [0.7, 0.7], [-0.7, 0.7], [0.7, -0.7], [-0.7, -0.7]];
+  const touches = (x: number, y: number, r: number) =>
+    heads.some((h) => x + r > h.bounds.minX && x - r < h.bounds.maxX && y + r > h.bounds.minY && y - r < h.bounds.maxY && ring.some(([dx, dy]) => h.height(x + dx * r, y + dy * r) > 0));
+  // Along the forearm from the elbow: its middle, and the hand at its end.
+  const tip: Point = [fo.x + (fore.center[0] - fo.x) * 2, fo.y + (fore.center[1] - fo.y) * 2];
+  const along = (t: number): Vec3 => [fo.x + (tip[0] - fo.x) * t, fo.y + (tip[1] - fo.y) * t, 0];
+  const ra = arm.thickness / 2 + REACH_GAP, rf = fore.thickness / 2 + REACH_GAP;
+  const clear = (raise: number, bend: number): boolean => {
+    const up = joint(sh.x, sh.y, sign * raise, 0), on = after(up, joint(fo.x, fo.y, sign * bend, 0));
+    const elbow = moved(up, [fo.x, fo.y, 0]);
+    if (touches(elbow[0], elbow[1], ra)) return false;
+    for (const t of [0.45, 0.78]) {
+      const q = moved(on, along(t));
+      if (touches(q[0], q[1], rf)) return false;
+    }
+    return true;
+  };
+  if (!clear(0, 0)) return undefined;
+  let max = 0;
+  while (max < 180 && clear(max + 1, 0)) max++;
+  const lo: number[] = [], hi: number[] = [];
+  for (let a = 0; a < max + REACH_STEP; a += REACH_STEP) {
+    const raise = Math.min(a, max);
+    let down = 0, upTo = 0;
+    while (down > -150 && clear(raise, down - 3)) down -= 3;
+    while (upTo < 150 && clear(raise, upTo + 3)) upTo += 3;
+    lo.push(down); hi.push(upTo);
+  }
+  return { max, lo, hi };
+}
+
+/** An arm's raise and bend, held within its reach: the raise eases into its limit, the bend stops at its own. */
+function withinReach(reach: ArmReach | undefined, raise: number, bend: number): [number, number] {
+  if (!reach || raise <= 0) return [raise, bend];
+  const knee = Math.max(0, reach.max - REACH_EASE);
+  const a = raise <= knee ? raise : knee + (reach.max - knee) * (1 - Math.exp(-(raise - knee) / Math.max(1, reach.max - knee)));
+  const at = Math.min(reach.lo.length - 1, a / REACH_STEP), i = Math.min(reach.lo.length - 2, Math.floor(at)), u = at - i;
+  const lo = reach.lo.length > 1 ? reach.lo[i] + (reach.lo[i + 1] - reach.lo[i]) * u : reach.lo[0];
+  const hi = reach.hi.length > 1 ? reach.hi[i] + (reach.hi[i + 1] - reach.hi[i]) * u : reach.hi[0];
+  return [a, Math.min(hi, Math.max(lo, bend))];
+}
+
+/** How much better another stack must face the viewer before a limb leaves the view's own. */
+const STACK_KEEP = 0.12;
+
+/**
+ * Which stack of cross-sections a turned limb is drawn with: the one whose planes face the viewer
+ * most squarely once the limb has turned. Drawn with planes seen edge-on, a limb falls apart into
+ * stripes with gaps between them. The view's own stack is kept while it is nearly as good, so a
+ * limb at rest matches the body it hangs from.
+ */
+function limbStack(vol: Volume, v: ViewBasis, stack: 'z' | 'x', part: number, g: Rigid | undefined): 'z' | 'x' | 'y' {
+  if (!g || !vol.parts[part].ySlices?.length) return stack;
+  const facing = { x: Math.abs(facingOf(v, [g.r[0], g.r[3], g.r[6]])), y: Math.abs(facingOf(v, [g.r[1], g.r[4], g.r[7]])), z: Math.abs(facingOf(v, [g.r[2], g.r[5], g.r[8]])) };
+  const best = facing.x > facing.y ? (facing.x > facing.z ? 'x' : 'z') : facing.y > facing.z ? 'y' : 'z';
+  return facing[stack] >= facing[best] - STACK_KEEP ? stack : best;
+}
+
 /** Where each rigged part is moved to in this pose, by part index; parts without a joint are absent. */
-function rigMoves(def: AvatarDefinition, limbs: Limbs): Map<number, Rigid> {
+function rigMoves(def: AvatarDefinition, pose: Limbs, reach?: { l?: ArmReach; r?: ArmReach }): Map<number, Rigid> {
+  // An arm held out in front of the body is clear of the head by where it is, not by how it is turned.
+  const [armL, foreL] = pose.armLz > 3 ? [pose.armL, pose.foreL] : withinReach(reach?.l, pose.armL, pose.foreL);
+  const [armR, foreR] = pose.armRz > 3 ? [pose.armR, pose.foreR] : withinReach(reach?.r, pose.armR, pose.foreR);
+  const limbs = { ...pose, armL, foreL, armR, foreR };
   const rig = def.rig ?? [];
   const at = (role: string) => rig.find((j) => j.role === role);
   const own: Record<string, [number, number]> = {
@@ -230,6 +319,9 @@ function rigMoves(def: AvatarDefinition, limbs: Limbs): Map<number, Rigid> {
     let g = joint(j.x, j.y, own[j.role][0], own[j.role][1]);
     const up = at(parent[j.role]);
     if (up) g = after(joint(up.x, up.y, own[up.role][0], own[up.role][1]), g);
+    // An arm held out in front of the body: the whole of it, forearm and all.
+    const lift = j.role.endsWith('arm-l') ? limbs.armLz : j.role.endsWith('arm-r') ? limbs.armRz : 0;
+    if (lift) g = { r: g.r, t: [g.t[0], g.t[1], g.t[2] + lift] };
     moves.set(j.part, g);
   }
   return moves;
@@ -360,7 +452,7 @@ export function avatarExtent(definition: AvatarDefinition, depth?: number): { x:
  * viewer, minus z-slices hidden behind the core (they add nothing to the
  * silhouette or the paint). Their union is the silhouette on screen.
  */
-function drawnSlices(p: Prepared, v: ViewBasis, size: number | undefined, visit: (s: VolumeSlice, m: M, part: number, index: number) => void, whole?: (part: number) => boolean) {
+function drawnSlices(p: Prepared, v: ViewBasis, size: number | undefined, visit: (s: VolumeSlice, m: M, part: number, index: number) => void, whole?: (part: number) => boolean, stackOf?: (part: number) => 'z' | 'x' | 'y') {
   const { vol } = p;
   const stack = activeStack(v);
   const pivot = pivotOf(vol.bounds);
@@ -368,9 +460,17 @@ function drawnSlices(p: Prepared, v: ViewBasis, size: number | undefined, visit:
   const kept = sliceDetail(p, stack, size);
   let k = 0;
   vol.parts.forEach((part, i) => {
+    const own = stackOf?.(i) ?? stack;
+    const first = k;
+    k += (stack === 'z' ? part.zSlices : part.xSlices).length;
+    if (own !== stack) {
+      // A limb turned so that the view's own stack is edge-on: all of the stack that faces the viewer.
+      (own === 'z' ? part.zSlices : own === 'x' ? part.xSlices : (part.ySlices ?? [])).forEach((s, j) => visit(s, own === 'z' ? planeMatrix(v, s.at, pivot) : sidePlaneMatrix(v, s.at, pivot), i, j));
+      return;
+    }
     (stack === 'z' ? part.zSlices : part.xSlices).forEach((s, j) => {
       // A part turned out of the plane shows cross-sections the plain view would hide: keep them all.
-      if (!kept[k++] || (!whole?.(i) && !drawn(s))) return;
+      if (!kept[first + j] || (!whole?.(i) && !drawn(s))) return;
       visit(s, stack === 'z' ? planeMatrix(v, s.at, pivot) : sidePlaneMatrix(v, s.at, pivot), i, j);
     });
   });
@@ -523,6 +623,11 @@ export type FrameShape =
       matrix: Matrix;
       /** With `shading`: this cross-section's own color, in place of AvatarFrame.color. */
       fill?: string;
+      /**
+       * With `shading`, on a limb where it leaves the body: the fill runs from `from` at (x1, y1)
+       * to `fill` at (x2, y2), in the path's own coordinates, and stays at each beyond its end.
+       */
+      fade?: { from: string; x1: number; y1: number; x2: number; y2: number };
     }
   | {
       kind: 'eye';
@@ -771,8 +876,81 @@ function shadeRamp(color: string, amount: number): string[] {
  */
 const SHADE_OWN = 0.55;
 
+/**
+ * Which parts of a rigged body are shaded as one: an upper arm with its forearm, a thigh with its
+ * shin and shoe, a head with what it wears. Shaded apart, each would end in its own darker rim
+ * and the limb would show a seam at every elbow and knee.
+ */
+/**
+ * Where each limb part's depth is taken: at the joint it shares with the rest of its limb (the
+ * elbow for an upper arm and its forearm, the knee for a thigh, its shin and the shoe). Taken at
+ * each part's own middle, two parts turned differently would lie at different depths where they
+ * meet, and the nearer would show its rounded end over the other.
+ */
+function limbKeys(def: AvatarDefinition): Map<number, Point> | undefined {
+  if (!def.rig?.length) return undefined;
+  const keys = new Map<number, Point>();
+  for (const j of def.rig) {
+    if (j.role === 'head') continue;
+    const lower = j.role.startsWith('arm') || j.role.startsWith('leg') ? def.rig.find((k) => k.role === j.role.replace('arm', 'forearm').replace('leg', 'shin')) : j;
+    if (lower) keys.set(j.part, [lower.x, lower.y]);
+  }
+  return keys;
+}
+
+/** How far along a limb, in its own widths, the body's shade gives way to the limb's. */
+const ROOT_FADE = 1.5;
+
+/**
+ * Where a limb leaves the body it takes the body's shade there and eases into its own a little way
+ * along. Shaded on its own from the start, its round end shows on the body as a rim, like a ball of
+ * clay pressed on; this way it grows out of the body instead.
+ */
+function fadeRoots(items: { depth: number; part?: number; at?: number; axis?: 'x' | 'y' | 'z'; shape: FrameShape }[], def: AvatarDefinition, vol: Volume): void {
+  if (!def.rig?.length) return;
+  const jointed = new Set(def.rig.map((j) => j.part));
+  for (const root of def.rig) {
+    if (!root.role.startsWith('arm') && !root.role.startsWith('leg')) continue;
+    // The trunk under the joint: the part without a joint that stands highest there.
+    let trunk = -1, top = 0;
+    vol.parts.forEach((part, i) => {
+      const h = jointed.has(i) ? 0 : part.height(root.x, root.y);
+      if (h > top) { top = h; trunk = i; }
+    });
+    if (trunk < 0) continue;
+    const lower = def.rig.find((k) => k.role === root.role.replace('arm', 'forearm').replace('leg', 'shin'));
+    const part = vol.parts[root.part];
+    const to: Point = lower ? [lower.x, lower.y] : part.center;
+    const len = Math.hypot(to[0] - root.x, to[1] - root.y);
+    if (len < 1) continue;
+    const reach = Math.min(len, ROOT_FADE * part.thickness);
+    const ux = (to[0] - root.x) / len, uy = (to[1] - root.y) / len;
+    for (const it of items) {
+      if (it.part !== root.part || it.shape.kind !== 'slice' || !it.shape.fill || it.axis === 'y') continue;
+      // The trunk's cross-section that makes its surface at the joint, as this stack cuts it.
+      let from: string | undefined, best = Infinity;
+      for (const other of items) {
+        if (other.part !== trunk || other.shape.kind !== 'slice' || !other.shape.fill || other.axis !== it.axis) continue;
+        const d = it.axis === 'z' ? ((other.at as number) <= top ? top - (other.at as number) : Infinity) : Math.abs((other.at as number) - root.x);
+        if (d < best) { best = d; from = other.shape.fill; }
+      }
+      if (!from || from === it.shape.fill) continue;
+      it.shape.fade = it.axis === 'z'
+        ? { from, x1: root.x, y1: root.y, x2: root.x + ux * reach, y2: root.y + uy * reach }
+        : { from, x1: 0, y1: root.y, x2: 0, y2: root.y + (Math.abs(uy) < 0.2 ? 0.2 * (uy < 0 ? -1 : 1) : uy) * reach };
+    }
+  }
+}
+
+function shadeGroups(def: AvatarDefinition): Map<number, string> | undefined {
+  if (!def.rig?.length) return undefined;
+  const groups = new Map<number, string>();
+  for (const j of def.rig) groups.set(j.part, j.role.replace('forearm', 'arm').replace('shin', 'leg'));
+  return groups;
+}
+
 /** Give each cross-section its shade by how near the viewer it is. `items` are sorted back to front. */
-function shadeSlices(items: { depth: number; part?: number; shape: FrameShape }[], color: string, shading: number | undefined) {
+function shadeSlices(items: { depth: number; part?: number; shape: FrameShape }[], color: string, shading: number | undefined, groups?: Map<number, string>) {
   const amount = clamp(Number.isFinite(shading) ? (shading as number) : 0, 0, 1);
   if (amount <= 0) return;
   let min = Infinity, max = -Infinity;
@@ -793,13 +971,21 @@ function shadeSlices(items: { depth: number; part?: number; shape: FrameShape }[
       if (it.depth > range[1]) range[1] = it.depth;
     }
   }
+  // The parts of one limb are shaded on one scale, that of the deepest of them, each about its own
+  // middle: where two of them meet, cross-sections at the same depth are the same shade.
+  const span = new Map<number | string, number>();
+  for (const [part, range] of own) {
+    const g = groups?.get(part) ?? part;
+    span.set(g, Math.max(span.get(g) ?? 0, range[1] - range[0]));
+  }
   const ramp = shadeRamp(color, Math.round(amount * 20) / 20);
   for (const it of items) {
     if (it.shape.kind !== 'slice') continue;
     const whole = (it.depth - min) / (max - min);
     const range = it.part === undefined ? undefined : own.get(it.part);
+    const scale = it.part === undefined ? 0 : (span.get(groups?.get(it.part) ?? it.part) as number);
     // A part that is the whole body, or too thin to have a range, takes the body's shade alone.
-    const t = range && own.size > 1 && range[1] - range[0] > 0.5 ? whole + (((it.depth - range[0]) / (range[1] - range[0])) - whole) * SHADE_OWN : whole;
+    const t = range && own.size > 1 && scale > 0.5 ? whole + (0.5 + (it.depth - (range[0] + range[1]) / 2) / scale - whole) * SHADE_OWN : whole;
     it.shape.fill = ramp[Math.round(clamp(t, 0, 1) * SHADE_LEVELS)];
   }
 }
@@ -821,23 +1007,24 @@ function flatFrame(definition: AvatarDefinition, options: RenderOptions, size: n
 
   // Only the cross-sections this view draws are listed; ids are stable across frames.
   const paths = new Map<string, FramePath>();
-  const items: { depth: number; part?: number; shape: FrameShape }[] = [];
-  const moves = p.def.rig?.length ? rigMoves(p.def, pose.limbs) : null;
+  const items: { depth: number; part?: number; at?: number; axis?: 'x' | 'y' | 'z'; shape: FrameShape }[] = [];
+  const moves = p.def.rig?.length ? rigMoves(p.def, pose.limbs, p.reach()) : null;
+  const keys = moves ? limbKeys(p.def) : undefined;
   if (fx.body > 0) {
     drawnSlices(p, v, size, (s, plain, i, j) => {
       const g = moves?.get(i);
-      const m = g ? movedMatrix(v, pivot, g, s.axis === 'z' ? (a, c) => [a, c, s.at] : (a, c) => [s.at, c, -a]) : plain;
+      const m = g ? movedMatrix(v, pivot, g, s.axis === 'z' ? (a, c) => [a, c, s.at] : s.axis === 'x' ? (a, c) => [s.at, c, -a] : (a, c) => [a, s.at, c]) : plain;
       let path = paths.get(s.d);
       if (!path) {
         path = { id: p.ids.get(s.d) as string, d: s.d, evenOdd: s.evenOdd, box: { ...s.box } };
         paths.set(s.d, path);
       }
       // Depth keys are taken under the eyes for the eye part, so only depth decides eye-vs-body order there.
-      const [rx, ry] = i === vol.eyePart ? eyesMid : vol.parts[i].center;
-      const key3: Vec3 = stack === 'z' ? [rx, ry, s.at] : [s.at, ry, 0];
+      const [rx, ry] = i === vol.eyePart ? eyesMid : (keys?.get(i) ?? vol.parts[i].center);
+      const key3: Vec3 = s.axis === 'z' ? [rx, ry, s.at] : s.axis === 'x' ? [s.at, ry, 0] : [rx, s.at, 0];
       const depth = projectPoint(v, g ? moved(g, key3) : key3, pivot)[2];
-      items.push({ depth, part: i, shape: { kind: 'slice', key: `${i}${stack}${j}`, path: path.id, matrix: shrink(m) } });
-    }, moves ? (i) => moves.has(i) : undefined);
+      items.push({ depth, part: i, at: s.at, axis: s.axis, shape: { kind: 'slice', key: `${i}${s.axis}${j}`, path: path.id, matrix: shrink(m) } });
+    }, moves ? (i) => moves.has(i) : undefined, moves ? (i) => limbStack(vol, v, stack, i, moves.get(i)) : undefined);
     const face = moves?.get(vol.eyePart);
     // Painted on the surface; each eye goes once the surface under it turns away.
     eyeStates(p, pose).forEach((e, idx) => {
@@ -852,7 +1039,8 @@ function flatFrame(definition: AvatarDefinition, options: RenderOptions, size: n
       }
     });
     items.sort((a, c) => a.depth - c.depth);
-    shadeSlices(items, color, options.shading);
+    shadeSlices(items, color, options.shading, shadeGroups(p.def));
+    fadeRoots(items, p.def, vol);
   }
 
   // Ribbons and marks stay put while the body moves: their matrices undo the root's motion.
@@ -927,9 +1115,21 @@ function ribbonSvg(d: string, g: RibbonGradient): string {
 export function renderAvatarSvg(definition: AvatarDefinition, options: RenderOptions = {}): string {
   const frame = avatarFrame(definition, options);
   const defsMarkup = frame.paths.map((d) => `<path id="${d.id}" d="${d.d}"${d.evenOdd ? ' fill-rule="evenodd"' : ''}/>`).join('');
+  const fades = new Map<string, string>();
+  const fadeDefs: string[] = [];
+  const fadeOf = (fill: string, g: NonNullable<Extract<FrameShape, { kind: 'slice' }>['fade']>): string => {
+    const key = `${g.from},${fill},${f(g.x1)},${f(g.y1)},${f(g.x2)},${f(g.y2)}`;
+    let id = fades.get(key);
+    if (!id) {
+      id = `oba-f${hashString(key).toString(36)}`;
+      fades.set(key, id);
+      fadeDefs.push(`<linearGradient id="${id}" gradientUnits="userSpaceOnUse" x1="${f(g.x1)}" y1="${f(g.y1)}" x2="${f(g.x2)}" y2="${f(g.y2)}"><stop offset="0" stop-color="${g.from}"/><stop offset="1" stop-color="${fill}"/></linearGradient>`);
+    }
+    return id;
+  };
   const body = frame.shapes
     .map((s) =>
-      s.kind === 'slice' ? `<use href="#${s.path}" transform="${mat(s.matrix)}"${s.fill ? ` fill="${s.fill}"` : ''}/>`
+      s.kind === 'slice' ? `<use href="#${s.path}" transform="${mat(s.matrix)}"${s.fill ? ` fill="${s.fade ? `url(#${fadeOf(s.fill, s.fade)})` : s.fill}"` : ''}/>`
       : s.kind === 'eye' ? `<g transform="${mat(s.matrix)}">${eyeSvg(s.mark, frame.ink, s.gloss)}</g>`
       : `<g transform="${mat(s.matrix)}">${ribbonSvg(s.d, s.gradient)}</g>`,
     )
@@ -958,7 +1158,7 @@ export function renderAvatarSvg(definition: AvatarDefinition, options: RenderOpt
   return (
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"${dims} role="img" aria-label="${label}" overflow="visible">` +
     `<title>${label}</title>` +
-    `<defs>${defsMarkup}</defs>` +
+    `<defs>${defsMarkup}${fadeDefs.join('')}</defs>` +
     under +
     `<g transform="${mat(frame.root)}" fill="${frame.color}">` +
     body +

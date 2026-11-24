@@ -1484,50 +1484,8 @@
     @media (max-width: 480px) {
       .pills-states {
         display: grid;
-        grid-template-columns: repeat(3, auto);
+        grid-template-columns: repeat(4, auto);
       }
-    }
-
-    /* The mood: a toggle of eyes in the preview's corner. */
-
-    .face-toggle {
-      position: absolute;
-      top: 8px;
-      left: 8px;
-      z-index: 3;
-      cursor: default;
-    }
-
-    .face-segmented {
-      display: flex;
-      gap: 2px;
-      padding: 2px;
-      border-radius: 999px;
-      background: #181818;
-      border: 1px solid var(--line);
-    }
-
-    .face-option {
-      display: grid;
-      place-items: center;
-      width: 34px;
-      height: 28px;
-      border-radius: 999px;
-      color: var(--faint);
-    }
-
-    .face-option:hover {
-      color: var(--muted);
-    }
-
-    .face-option.is-on {
-      color: var(--text);
-      background: var(--raised);
-    }
-
-    .eyes-glyph {
-      width: 18px;
-      height: 18px;
     }
 
     /* The short, embedded layout: smaller pills on one line. */

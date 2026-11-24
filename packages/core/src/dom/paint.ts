@@ -237,7 +237,14 @@ export function paintCanvas(surface: CanvasSurface, frame: AvatarFrame, size: nu
     if (shape.kind === 'slice') {
       const section = sections.get(shape.path) as Section;
       const want = shaded && shape.fill ? shape.fill : fill;
-      if (want !== current) ctx.fillStyle = current = want;
+      if (shaded && shape.fill && shape.fade) {
+        // A limb where it leaves the body: from the body's shade into its own.
+        const g = shape.fade, paint = ctx.createLinearGradient(g.x1, g.y1, g.x2, g.y2);
+        paint.addColorStop(0, g.from);
+        paint.addColorStop(1, shape.fill);
+        ctx.fillStyle = paint;
+        current = '';
+      } else if (want !== current) ctx.fillStyle = current = want;
       ctx.fill(section.path, section.rule);
     } else if (shape.kind === 'eye') {
       glossyEye(ctx, shape.mark, shape.gloss, ink);

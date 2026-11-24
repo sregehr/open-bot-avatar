@@ -30,7 +30,7 @@ describe('rig', () => {
     const base = { seed: 7, time: 3, reducedMotion: false, rigged: true } as const;
     const thinking = computePose({ ...base, state: 'thinking' });
     expect(thinking.dots).toBe(0);
-    expect(thinking.limbs.armR).toBeGreaterThan(60);
+    expect(thinking.limbs.armLs).toBeGreaterThan(30);
     expect(computePose({ ...base, state: 'blocked' }).bang).toBe(0);
     expect(computePose({ ...base, state: 'waiting' }).limbs.foreL).toBeLessThan(-60);
   });

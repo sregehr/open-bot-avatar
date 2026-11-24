@@ -186,8 +186,7 @@ export function Studio() {
           reduced={reduced}
           view={view}
           onView={setView}
-          onState={(state) => patchLook({ state })}
-          onMood={(mood) => patchLook({ mood })}
+          onLook={patchLook}
         >
           <Actions entry={selected} color={color} state={look.state} mood={look.mood} onRemove={removeEntry} />
         </Stage>

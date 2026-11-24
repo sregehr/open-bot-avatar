@@ -1,24 +1,38 @@
 /*
- * How the editor picks the avatar's state and mood: the state as a row of pills under the
- * preview, the mood as a toggle of eyes in the preview's corner.
+ * How the editor picks what the avatar is doing: one row of pills under the preview. Six are the
+ * engine's states; the seventh, Happy, is its happy mood on an idle avatar. The engine keeps state
+ * and mood apart (a host can ask for happy eyes on any state); the editor offers the one pairing
+ * that looks different in the body as well as the eyes.
  */
 import { useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import type { AvatarMood, AvatarState } from "open-bot-avatar";
 import type { Choice } from "./ui";
 
-export const STATES: Choice<AvatarState>[] = [
+/** A pill of the row: a state, or the happy mood. */
+export type Expression = AvatarState | "happy";
+
+export const EXPRESSIONS: Choice<Expression>[] = [
   { value: "idle", label: "Idle", hint: "Calm, looking around" },
-  { value: "thinking", label: "Thinking", hint: "Three dots, taking turns" },
+  { value: "happy", label: "Happy", hint: "Hops, with smiling eyes" },
+  { value: "thinking", label: "Thinking", hint: "Three dots, or chin in hand" },
   { value: "working", label: "Working", hint: "Busy, with ribbons sweeping round" },
-  { value: "waiting", label: "Waiting", hint: "Leaning, eyes flat" },
-  { value: "blocked", label: "Blocked", hint: "An exclamation mark" },
+  { value: "waiting", label: "Waiting", hint: "Leaning, eyes half-lidded" },
+  { value: "blocked", label: "Blocked", hint: "An exclamation mark, or a shrug" },
   { value: "done", label: "Done", hint: "Spins inside a cage of ribbons, then rests" },
 ];
 
-export const MOODS: Choice<AvatarMood>[] = [
-  { value: "neutral", label: "Neutral", hint: "Plain eyes" },
-  { value: "happy", label: "Happy", hint: "Smiling arcs; hops when idle" },
-];
+/** The state and mood a pill stands for. */
+export function lookOf(expression: Expression): { state: AvatarState; mood: AvatarMood } {
+  return expression === "happy" ? { state: "idle", mood: "happy" } : { state: expression, mood: "neutral" };
+}
+
+/**
+ * The pill that shows for a state and mood. A link can open a pairing the row has no pill for
+ * (happy eyes while working): its state's pill shows, and the next pick puts the mood back in step.
+ */
+export function expressionOf(state: AvatarState, mood: AvatarMood): Expression {
+  return mood === "happy" && state === "idle" ? "happy" : state;
+}
 
 /* A radio group: one stop in the tab order, arrow keys (and Home/End) move the choice. */
 
@@ -93,32 +107,8 @@ function RadioGroup<T extends string>({ label, value, options, onChange, classNa
   );
 }
 
-export function StatePills({ state, onState }: { state: AvatarState; onState: (state: AvatarState) => void }) {
-  return <RadioGroup label="State" value={state} options={STATES} onChange={onState} className="pills pills-states" itemClassName="pill" tips />;
-}
-
-/* The mood as a small toggle of eyes, laid over a corner of the preview. */
-
-function Eyes({ mood }: { mood: AvatarMood }) {
+export function StatePills({ state, mood, onLook }: { state: AvatarState; mood: AvatarMood; onLook: (look: { state: AvatarState; mood: AvatarMood }) => void }) {
   return (
-    <svg className="eyes-glyph" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-      {mood === "happy" ? (
-        <path d="M4.5 15c.9-4.6 5.1-4.6 6 0M13.5 15c.9-4.6 5.1-4.6 6 0" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" />
-      ) : (
-        <>
-          <rect x="6" y="6.5" width="3.8" height="11" rx="1.9" fill="currentColor" />
-          <rect x="14.2" y="6.5" width="3.8" height="11" rx="1.9" fill="currentColor" />
-        </>
-      )}
-    </svg>
-  );
-}
-
-export function FaceToggle({ mood, onMood }: { mood: AvatarMood; onMood: (mood: AvatarMood) => void }) {
-  // Inside the preview: keep its drag, double-click reset and arrow-key turning out of this.
-  return (
-    <div className="face-toggle" onPointerDown={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
-      <RadioGroup label="Mood" value={mood} options={MOODS} onChange={onMood} className="face-segmented" itemClassName="face-option" iconOnly render={(o) => <Eyes mood={o.value} />} />
-    </div>
+    <RadioGroup label="State" value={expressionOf(state, mood)} options={EXPRESSIONS} onChange={(expression) => onLook(lookOf(expression))} className="pills pills-states" itemClassName="pill" tips />
   );
 }
