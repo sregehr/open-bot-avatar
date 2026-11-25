@@ -1,8 +1,9 @@
+import type { MaterialName } from "./look";
 import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
 import type { AvatarDefinition, AvatarMood, AvatarState } from "open-bot-avatar";
 import { BotAvatar } from "../BotAvatar";
 import { Icon } from "./ui";
-import { EXPRESSIONS, StatePills, lookOf } from "./pickers";
+import { EXPRESSIONS, MaterialToggle, StatePills, lookOf } from "./pickers";
 
 export type ViewAngle = { yaw: number; pitch: number };
 
@@ -14,6 +15,8 @@ interface StageProps {
   shading: number;
   grain: number;
   shadow: boolean;
+  /** The body's finish. */
+  material: MaterialName;
   state: AvatarState;
   mood: AvatarMood;
   followCursor: boolean;
@@ -25,6 +28,7 @@ interface StageProps {
   onView: (view: ViewAngle) => void;
   /** A pill of the state row was picked: the state and mood it stands for. */
   onLook: (look: { state: AvatarState; mood: AvatarMood }) => void;
+  onMaterial: (material: MaterialName) => void;
   /** Shown under the state row (the avatar's actions). */
   children?: ReactNode;
 }
@@ -34,7 +38,7 @@ const clampPitch = (p: number) => Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, p
 /** Keep yaw in -π..π so a reset never spins the long way round. */
 const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
 
-export function Stage({ definition, color, depth, shading, grain, shadow, state, mood, followCursor, reducedMotion, reduced, view, onView, onLook, children }: StageProps) {
+export function Stage({ definition, color, depth, shading, grain, shadow, material, state, mood, followCursor, reducedMotion, reduced, view, onView, onLook, onMaterial, children }: StageProps) {
   const drag = useRef<{ id: number; x: number; y: number; start: ViewAngle } | null>(null);
   const [dragging, setDragging] = useState(false);
   const easing = useRef(0);
@@ -134,6 +138,7 @@ export function Stage({ definition, color, depth, shading, grain, shadow, state,
         shading={shading}
         grain={grain}
         shadow={shadow}
+        material={material}
         state={state}
         mood={mood}
         view={view}
@@ -142,6 +147,17 @@ export function Stage({ definition, color, depth, shading, grain, shadow, state,
         reducedMotion={reducedMotion}
         label=""
       />
+      {material === "glass" && state !== "thinking" && state !== "blocked" ? (
+        <div
+          className="stage-glass-caustic"
+          aria-hidden="true"
+          style={{ "--glass-tint": color } as Record<string, string>}
+        />
+      ) : null}
+      {/* Over the preview: keep its drag, double-click reset and arrow-key turning out of it. */}
+      <div className="stage-bar" onPointerDown={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
+        <MaterialToggle material={material} onMaterial={onMaterial} />
+      </div>
       <button
         type="button"
         className="stage-reset"

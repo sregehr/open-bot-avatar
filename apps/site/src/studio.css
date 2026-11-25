@@ -121,14 +121,31 @@
       cursor: grabbing;
     }
 
+    .stage-glass-caustic {
+      position: absolute;
+      bottom: 4px;
+      left: 50%;
+      width: 150px;
+      height: 36px;
+      transform: translateX(-50%);
+      pointer-events: none;
+      border-radius: 50%;
+      background:
+        radial-gradient(ellipse 36% 52% at 50% 48%, color-mix(in srgb, var(--glass-tint, #14b3a5) 68%, #ffffff 32%) 0%, color-mix(in srgb, var(--glass-tint, #14b3a5) 38%, transparent) 48%, transparent 80%),
+        radial-gradient(ellipse 68% 58% at 50% 56%, color-mix(in srgb, var(--glass-tint, #14b3a5) 36%, transparent) 0%, transparent 74%);
+      filter: blur(8px);
+      opacity: 0.78;
+    }
+
     .stage-avatar {
       width: 156px;
       height: 156px;
     }
 
+    /* In the corner under the material toggle. */
     .stage-reset {
       position: absolute;
-      top: 8px;
+      top: 48px;
       right: 8px;
       width: 34px;
       height: 34px;
@@ -1486,6 +1503,62 @@
         display: grid;
         grid-template-columns: repeat(4, auto);
       }
+    }
+
+    /*
+     * The toggle over a top corner of the preview: the material, as a row of faces.
+     */
+
+    .stage-bar {
+      position: absolute;
+      top: 8px;
+      left: 8px;
+      right: 8px;
+      z-index: 3;
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 6px;
+      /* The preview drags through the gap. */
+      pointer-events: none;
+    }
+
+    .stage-bar > * {
+      pointer-events: auto;
+      cursor: default;
+    }
+
+    .face-segmented {
+      display: flex;
+      gap: 2px;
+      padding: 2px;
+      border-radius: 999px;
+      background: #181818;
+      border: 1px solid var(--line);
+    }
+
+    .face-option {
+      display: grid;
+      place-items: center;
+      width: 34px;
+      height: 28px;
+      border-radius: 999px;
+      color: var(--faint);
+    }
+
+    .face-option:hover {
+      color: var(--muted);
+    }
+
+    .face-option.is-on {
+      color: var(--text);
+      background: var(--raised);
+    }
+
+    .eyes-glyph,
+    .face-glyph {
+      width: 18px;
+      height: 18px;
     }
 
     /* The short, embedded layout: smaller pills on one line. */

@@ -3,9 +3,13 @@ import DEFAULT_COLORS from "../../../../gallery/colors.json";
 
 export type MotionPreference = "system" | "reduced" | "full";
 
+export type MaterialName = 'flat' | 'fluffy' | 'glass';
+
 export interface LookState {
   /** Colors picked for avatars, by library key; an avatar not in here shows its default color. */
   colors: Record<string, string>;
+  /** The finish of every avatar on the site. */
+  material: MaterialName;
   /** What the bot is doing, and how it feels. */
   state: AvatarState;
   mood: AvatarMood;
@@ -60,6 +64,7 @@ export const PALETTE = [
 
 export const DEFAULT_LOOK: LookState = {
   colors: {},
+  material: "flat",
   state: "idle",
   mood: "neutral",
   followCursor: true,
@@ -96,6 +101,11 @@ export function withColor(look: LookState, key: string, id: string, color: strin
   return { ...look, colors: color.toLowerCase() === defaultColor(id) ? colors : { ...colors, [key]: color.toLowerCase() } };
 }
 
+/** A material by name, from a stored look or a link. */
+export function readMaterial(value: unknown): MaterialName | undefined {
+  return value === "flat" || value === "fluffy" || value === "glass" ? value : undefined;
+}
+
 /** Revive a stored look; anything missing or invalid falls back to the default. */
 export function reviveLook(raw: unknown): LookState | undefined {
   if (!raw || typeof raw !== "object") return undefined;
@@ -107,6 +117,7 @@ export function reviveLook(raw: unknown): LookState | undefined {
       r.colors && typeof r.colors === "object"
         ? Object.fromEntries(Object.entries(r.colors).flatMap(([key, value]) => (typeof value === "string" && HEX.test(value) ? [[key, value.toLowerCase()]] : [])))
         : {},
+    material: readMaterial(r.material) ?? DEFAULT_LOOK.material,
     ...resolveLook({ state: r.state, mood: r.mood, motion: r.motion }),
     followCursor: typeof r.followCursor === "boolean" ? r.followCursor : true,
     motionPreference: r.motionPreference === "reduced" || r.motionPreference === "full" ? r.motionPreference : "system",

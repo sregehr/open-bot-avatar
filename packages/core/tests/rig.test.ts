@@ -22,16 +22,16 @@ describe('rig', () => {
 
   it('leaves an avatar without one alone', () => {
     const base = { seed: 7, time: 3, reducedMotion: false } as const;
-    expect(computePose({ ...base, state: 'thinking' }).dots).toBe(1);
+    expect(computePose({ ...base, state: 'thinking' }).marks).toHaveLength(1);
     expect(computePose({ ...base, state: 'thinking' }).limbs).toEqual(limbsAtRest());
   });
 
   it('acts states out with its limbs and keeps its body', () => {
     const base = { seed: 7, time: 3, reducedMotion: false, rigged: true } as const;
     const thinking = computePose({ ...base, state: 'thinking' });
-    expect(thinking.dots).toBe(0);
+    expect(thinking.marks).toEqual([]);
     expect(thinking.limbs.armLs).toBeGreaterThan(30);
-    expect(computePose({ ...base, state: 'blocked' }).bang).toBe(0);
+    expect(computePose({ ...base, state: 'blocked' }).marks).toEqual([]);
     expect(computePose({ ...base, state: 'waiting' }).limbs.foreL).toBeLessThan(-60);
   });
 
@@ -91,5 +91,48 @@ describe('rig', () => {
     const still = (state: 'idle' | 'blocked') => renderAvatarSvg(scout, { state, reducedMotion: true });
     expect(still('idle')).not.toBe(still('blocked'));
     expect(avatarFrame(scout, { state: 'blocked', reducedMotion: true }).shapes.some((shape) => shape.kind === 'eye')).toBe(true);
+  });
+
+  it('comes in pieces for a material, the head last and carrying the eyes', () => {
+    expect(avatarFrame(box as AvatarDefinition, { reducedMotion: true }).surface.pieces).toBeUndefined();
+    const pieces = avatarFrame(scout, { reducedMotion: true }).surface.pieces ?? [];
+    // Every part of the volume is in exactly one piece.
+    const parts = pieces.flatMap((piece) => piece.parts).sort((a, b) => a - b);
+    expect(parts).toEqual(parts.map((_, i) => i));
+    expect(pieces.filter((piece) => piece.eyes)).toHaveLength(1);
+    expect(pieces[pieces.length - 1].eyes).toBe(true);
+    // Standing idle, arms hang a little out from the body and nothing is turned far: each piece is seen nearly as the body is.
+    const { view } = avatarFrame(scout, { reducedMotion: true }).surface;
+    for (const piece of pieces) {
+      expect(Math.abs(piece.roll)).toBeLessThan(0.2);
+      expect(piece.view.sP).toBeCloseTo(view.sP, 1);
+    }
+    // A raised arm turns on screen.
+    const waving = avatarFrame(scout, { state: 'done', stateAge: 1.5, time: 1.5 }).surface.pieces ?? [];
+    expect(waving.some((piece) => Math.abs(piece.roll) > 1)).toBe(true);
+  });
+
+  it('taps a foot while it thinks: the heel lifts a little and the leg stays planted', () => {
+    const base = { seed: 7, reducedMotion: false, rigged: true, state: 'thinking' } as const;
+    const poses = Array.from({ length: 40 }, (_, i) => computePose({ ...base, time: i * 0.05 }).limbs);
+    expect(Math.max(...poses.map((limbs) => limbs.footR))).toBeGreaterThan(8);
+    expect(Math.min(...poses.map((limbs) => limbs.footR))).toBe(0);
+    for (const limbs of poses) {
+      expect(limbs.legRs).toBe(0);
+      expect(limbs.shinR).toBe(0);
+      expect(limbs.footL).toBe(0);
+    }
+    // The shoe keeps its place in the order the leg is painted in all the way through a tap: no flash as it tips.
+    // The right leg's parts: its thigh, shin and shoe.
+    const leg = new RegExp(`^(${(scout.rig ?? []).filter((j) => j.role === 'leg-r' || j.role === 'shin-r').map((j) => j.part).join('|')})[xyz]`);
+    const order = (time: number) => avatarFrame(scout, { state: 'thinking', time }).shapes.flatMap((shape) => (shape.kind === 'slice' && leg.test(shape.key) ? [shape.key] : [])).join(' ');
+    const orders = new Set(Array.from({ length: 60 }, (_, i) => order((i * 0.78) / 60)));
+    expect(orders.size).toBe(1);
+    // Waiting taps the same way.
+    const waiting = Array.from({ length: 40 }, (_, i) => computePose({ ...base, state: 'waiting', time: i * 0.05 }).limbs);
+    expect(Math.max(...waiting.map((limbs) => limbs.footR))).toBeGreaterThan(8);
+    for (const limbs of waiting) expect([limbs.legRs, limbs.shinR]).toEqual([0, 0]);
+    // Under reduced motion the foot is down.
+    expect(computePose({ ...base, time: 1, reducedMotion: true }).limbs.footR).toBe(0);
   });
 });

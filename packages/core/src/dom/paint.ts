@@ -11,10 +11,17 @@
  *
  * The canvas sits in a wrapper at the host's content box, as the scene does,
  * overhangs it by the avatar's reach and ignores the pointer.
+ *
+ * A fluffy avatar is painted the same way, except that its body and eyes come as one image from
+ * the fluffy renderer (see fluffy/renderer.ts) in place of the slices and eye marks.
  */
-import { avatarExtent } from '../render.ts';
-import type { AvatarFrame, EyeGloss, EyeMark, EyeSpotlight, FramePath, Matrix } from '../render.ts';
+import { avatarExtent, preparedVolume } from '../render.ts';
+import type { AvatarFrame, EyeGloss, EyeMark, EyeSpotlight, FramePath, FrameShape, Matrix, SurfacePiece } from '../render.ts';
 import type { AvatarDefinition } from '../types.ts';
+import type { Volume } from '../volume.ts';
+import { eyeBox, paintEye } from './eye.ts';
+import { paintMark } from './materials/marks.ts';
+import { canvasMaterialOf, type AvatarMaterial } from './materials/material.ts';
 
 /** A square in viewBox units. */
 export interface Square {
@@ -65,8 +72,12 @@ export function fitSquare(prev: Square | null, b: Bounds, cap: Square): Square {
 }
 
 interface Section {
+  d: string;
+  box: FramePath['box'];
   path: Path2D;
   rule: CanvasFillRule;
+  /** A mark's part that is a ball or a capsule (see MarkPart.round). */
+  round: boolean;
 }
 
 const MAX_SECTIONS = 4096;
@@ -119,16 +130,6 @@ export function framePlacement(frame: AvatarFrame): { matrices: Matrix[]; bounds
   return { matrices, bounds };
 }
 
-function eyeBox(mark: EyeMark): FramePath['box'] {
-  if (mark.shape === 'pill') return { x: mark.x, y: mark.y, w: mark.width, h: mark.height };
-  // Quadratics lie within their points' hull; an arc's stroke reaches half its width past it.
-  const reach = mark.shape === 'arc' ? mark.strokeWidth : 0;
-  const n = (mark.d.match(/-?\d+(?:\.\d+)?/g) ?? []).map(Number);
-  const xs = n.filter((_, i) => i % 2 === 0), ys = n.filter((_, i) => i % 2 === 1);
-  const x = Math.min(...xs) - reach, y = Math.min(...ys) - reach;
-  return { x, y, w: Math.max(...xs) + reach - x, h: Math.max(...ys) + reach - y };
-}
-
 /** One of an eye's lights or its shadow, left as the fill style's own color at this opacity. */
 function spot(ctx: CanvasRenderingContext2D, s: EyeSpotlight, color: string) {
   if (s.opacity <= 0.005) return;
@@ -144,30 +145,11 @@ function spot(ctx: CanvasRenderingContext2D, s: EyeSpotlight, color: string) {
 function glossyEye(ctx: CanvasRenderingContext2D, mark: EyeMark, gloss: EyeGloss | undefined, ink: string, socket = true) {
   if (gloss && socket) spot(ctx, gloss.socket, '#000');
   ctx.fillStyle = ink;
-  eye(ctx, mark);
+  paintEye(ctx, mark);
   if (!gloss) return;
   spot(ctx, gloss.sheen, '#fff');
   spot(ctx, gloss.glint, '#fff');
   spot(ctx, gloss.spark, '#fff');
-}
-
-function eye(ctx: CanvasRenderingContext2D, mark: EyeMark) {
-  if (mark.shape === 'path') {
-    ctx.fill(new Path2D(mark.d));
-    return;
-  }
-  if (mark.shape === 'arc') {
-    ctx.lineWidth = mark.strokeWidth;
-    ctx.stroke(new Path2D(mark.d));
-    return;
-  }
-  const { x, y, width: w, height: h, radius: rx, radiusY: ry } = mark;
-  ctx.beginPath();
-  // An oval: a round rect whose corners take up the whole box, or an ellipse where there is none
-  // (Safari before 16 and Firefox before 112).
-  if (typeof ctx.roundRect === 'function') ctx.roundRect(x, y, w, h, [{ x: rx, y: ry }]);
-  else ctx.ellipse(x + w / 2, y + h / 2, rx, ry, 0, 0, Math.PI * 2);
-  ctx.fill();
 }
 
 /** A mounted canvas and the square and size its bitmap was last laid out at. */
@@ -175,6 +157,10 @@ export interface CanvasSurface {
   key: string;
   canvas: HTMLCanvasElement;
   ctx: CanvasRenderingContext2D | null;
+  /** The avatar's volume, for a material's coat: built when first asked for. Null at depth 0, which has no surface to coat. */
+  volume: (() => Volume) | null;
+  /** A rigged character's pieces as volumes of their own (see SurfacePiece), by their parts. */
+  pieces: Map<string, Volume>;
   cap: Square;
   fit: Square | null;
   layout: string;
@@ -192,21 +178,42 @@ export function mountCanvas(el: HTMLElement, key: string, definition: AvatarDefi
   canvas.style.cssText = 'position:absolute';
   wrap.append(canvas);
   el.replaceChildren(wrap);
-  return { key, canvas, ctx: canvas.getContext('2d'), cap, fit: null, layout: '', left: 0, top: 0 };
+  let volume: Volume | undefined;
+  return {
+    key, canvas, ctx: canvas.getContext('2d'), cap, fit: null, layout: '', left: 0, top: 0, pieces: new Map(),
+    volume: depth === 0 ? null : () => (volume ??= preparedVolume(definition, depth).vol),
+  };
 }
 
-/** Paint one frame `size` CSS pixels wide. `fill` and `ink` override the frame's colors with any canvas color. */
-export function paintCanvas(surface: CanvasSurface, frame: AvatarFrame, size: number, fill = frame.color, ink = frame.ink) {
+/** The marks of `thinking` and `blocked`, which a frame lists as slices in place of the body. */
+const isMark = (shape: FrameShape) => shape.key.startsWith('mark-');
+
+/**
+ * Paint one frame `size` CSS pixels wide. `fill` and `ink` override the frame's colors with any
+ * canvas color. A material falls back to flat where it cannot be drawn.
+ */
+export function paintCanvas(surface: CanvasSurface, frame: AvatarFrame, size: number, fill = frame.color, ink = frame.ink, material: AvatarMaterial = 'flat') {
   const { canvas, ctx } = surface;
   if (!ctx || size <= 0) return;
   const dpr = window.devicePixelRatio || 1;
   const scale = (size / 100) * dpr;
   const layout = `${size}|${dpr}`;
   if (sections.size > MAX_SECTIONS) sections.clear();
-  for (const { id, d, evenOdd } of frame.paths) {
-    if (!sections.has(id)) sections.set(id, { path: new Path2D(d), rule: evenOdd ? 'evenodd' : 'nonzero' });
+  for (const { id, d, evenOdd, box, round } of frame.paths) {
+    // A mark's part may come with another outline under its id (a host's mark is its own code): then it is made anew.
+    const known = sections.get(id);
+    if (!known || known.d !== d || known.round !== (round === true)) sections.set(id, { d, box, path: new Path2D(d), rule: evenOdd ? 'evenodd' : 'nonzero', round: round === true });
   }
   const { matrices, bounds } = framePlacement(frame);
+  const finish = canvasMaterialOf(material);
+  const volume = finish ? surface.volume : null;
+  if (finish) {
+    const margin = finish.margin ?? 0;
+    bounds.x0 -= margin;
+    bounds.y0 -= margin;
+    bounds.x1 += margin;
+    bounds.y1 += margin;
+  }
   const fit = fitSquare(surface.layout === layout ? surface.fit : null, bounds, surface.cap);
   if (surface.layout === layout && fit === surface.fit) {
     ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -224,6 +231,59 @@ export function paintCanvas(surface: CanvasSurface, frame: AvatarFrame, size: nu
     canvas.style.width = canvas.style.height = `${bitmap / dpr}px`;
   }
 
+  // The whole body and its eyes as one image, unless it has shrunk away into a mark.
+  const { view, scale: bodyScale, eyes } = frame.surface;
+  // A rigged character is coated piece by piece, each where its joints have turned it.
+  const pieces = finish && volume && bodyScale > 0.001 ? frame.surface.pieces : undefined;
+  const coat = finish && volume && bodyScale > 0.001 && !pieces
+    ? finish.render(volume(), view, { color: fill, ink, eyes }, scale)
+    : null;
+  let coatPainted = false;
+  /** Whether the pieces took the body's place: decided at its first cross-section. False where the material cannot draw them. */
+  let pieced: boolean | undefined;
+  const paintPieces = (): boolean => {
+    if (!finish || !volume || !pieces) return false;
+    const whole = volume();
+    const [a, b, c, d, e, f] = frame.root;
+    const partOf = (piece: SurfacePiece): Volume => {
+      const key = piece.parts.join();
+      let part = surface.pieces.get(key);
+      if (!part) {
+        const bounds = piece.parts.map((i) => whole.parts[i].bounds);
+        part = {
+          ...whole,
+          parts: piece.parts.map((i) => whole.parts[i]),
+          bounds: { minX: Math.min(...bounds.map((q) => q.minX)), minY: Math.min(...bounds.map((q) => q.minY)), maxX: Math.max(...bounds.map((q) => q.maxX)), maxY: Math.max(...bounds.map((q) => q.maxY)) },
+        };
+        surface.pieces.set(key, part);
+      }
+      return part;
+    };
+    // As one surface where the material can join the pieces, so no joint shows.
+    const joined = finish.renderJointed?.(whole, pieces.map((piece) => ({ shape: partOf(piece), move: piece.move, eyes: piece.eyes })), view, { color: fill, ink, eyes }, scale);
+    if (joined) {
+      ctx.setTransform(scale * a, scale * b, scale * c, scale * d, scale * e - surface.left, scale * f - surface.top);
+      const radius = joined.radius * bodyScale;
+      ctx.drawImage(joined.canvas, joined.x, joined.y, joined.size, joined.size, joined.cx - radius, joined.cy - radius, 2 * radius, 2 * radius);
+      return true;
+    }
+    for (let n = 0; n < pieces.length; n++) {
+      const piece = pieces[n], part = partOf(piece);
+      // The image is the material's own canvas until its next render: it is drawn at once.
+      const image = finish.render(part, piece.view, { color: fill, ink, eyes: piece.eyes ? eyes : [] }, scale);
+      if (!image) {
+        if (n === 0) return false;
+        continue;
+      }
+      const cos = Math.cos(piece.roll), sin = Math.sin(piece.roll);
+      const m: Matrix = [a * cos + c * sin, b * cos + d * sin, c * cos - a * sin, d * cos - b * sin, a * piece.x + c * piece.y + e, b * piece.x + d * piece.y + f];
+      ctx.setTransform(scale * m[0], scale * m[1], scale * m[2], scale * m[3], scale * m[4] - surface.left, scale * m[5] - surface.top);
+      // A pixel in from the image's edge: the canvas beyond it may hold another piece, which a turned image would sample.
+      const r = image.radius * (1 - 2 / image.size);
+      ctx.drawImage(image.canvas, image.x + 1, image.y + 1, image.size - 2, image.size - 2, -r, -r, 2 * r, 2 * r);
+    }
+    return true;
+  };
   ctx.lineCap = 'round';
   ctx.strokeStyle = ink;
   ctx.fillStyle = fill;
@@ -236,17 +296,34 @@ export function paintCanvas(surface: CanvasSurface, frame: AvatarFrame, size: nu
     ctx.setTransform(scale * m[0], scale * m[1], scale * m[2], scale * m[3], scale * m[4] - surface.left, scale * m[5] - surface.top);
     if (shape.kind === 'slice') {
       const section = sections.get(shape.path) as Section;
-      const want = shaded && shape.fill ? shape.fill : fill;
-      if (shaded && shape.fill && shape.fade) {
-        // A limb where it leaves the body: from the body's shade into its own.
-        const g = shape.fade, paint = ctx.createLinearGradient(g.x1, g.y1, g.x2, g.y2);
-        paint.addColorStop(0, g.from);
-        paint.addColorStop(1, shape.fill);
-        ctx.fillStyle = paint;
-        current = '';
-      } else if (want !== current) ctx.fillStyle = current = want;
-      ctx.fill(section.path, section.rule);
+      if (isMark(shape)) {
+        // In the material where it can draw the part, else as a plain fill.
+        if (current !== fill) ctx.fillStyle = current = fill;
+        if (!finish || !paintMark(finish, ctx, section, scale, fill)) ctx.fill(section.path, section.rule);
+      } else if (pieces && (pieced ??= paintPieces())) {
+        // The pieces took the place of the first cross-section.
+      } else if (!coat) {
+        const want = shaded && shape.fill ? shape.fill : fill;
+        if (shaded && shape.fill && shape.fade) {
+          // A limb where it leaves the body: from the body's shade into its own.
+          const g = shape.fade, paint = ctx.createLinearGradient(g.x1, g.y1, g.x2, g.y2);
+          paint.addColorStop(0, g.from);
+          paint.addColorStop(1, shape.fill);
+          ctx.fillStyle = paint;
+          current = '';
+        } else if (want !== current) ctx.fillStyle = current = want;
+        ctx.fill(section.path, section.rule);
+      } else if (!coatPainted) {
+        // The body's slices follow one another: the coat takes the place of the first, under the root's motion.
+        coatPainted = true;
+        const [a, b, c, d, e, f] = frame.root;
+        ctx.setTransform(scale * a, scale * b, scale * c, scale * d, scale * e - surface.left, scale * f - surface.top);
+        const radius = coat.radius * bodyScale;
+        ctx.drawImage(coat.canvas, coat.x, coat.y, coat.size, coat.size, coat.cx - radius, coat.cy - radius, 2 * radius, 2 * radius);
+      }
     } else if (shape.kind === 'eye') {
+      // A coat comes with its eyes set into it.
+      if (coat || pieced) return;
       glossyEye(ctx, shape.mark, shape.gloss, ink);
       ctx.fillStyle = current = fill;
     } else {
@@ -258,7 +335,8 @@ export function paintCanvas(surface: CanvasSurface, frame: AvatarFrame, size: nu
       ctx.fillStyle = current = fill;
     }
   };
-  const lit = !!frame.light || !!frame.grain;
+  // A material brings its own light and surface: shading and grain are for the flat finish.
+  const lit = !coat && !pieces && (!!frame.light || !!frame.grain);
   if (!lit && !frame.shadow) {
     for (let i = 0; i < frame.shapes.length; i++) paintShape(i);
     return;

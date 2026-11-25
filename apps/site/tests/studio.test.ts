@@ -98,6 +98,20 @@ describe("share links", () => {
     expect(readShare(new URL(link).search)).toEqual({ avatar: "mug", color: "#ff5dd8", state: "working", mood: "happy" });
   });
 
+  it("carry the material when it isn't the default, and saved looks keep it", () => {
+    const link = (material: "flat" | "fluffy" | "glass") => shareLink("https://example.test/", { source: "starter", definition: mug }, { ...DEFAULT_LOOK, material, color: defaultColor("mug") });
+    expect(DEFAULT_LOOK.material).toBe("flat");
+    expect(link("flat")).toBe("https://example.test/?avatar=mug");
+    expect(link("fluffy")).toBe("https://example.test/?avatar=mug&material=fluffy");
+    expect(readShare("?avatar=mug&material=fluffy")).toEqual({ avatar: "mug", material: "fluffy" });
+    expect(link("glass")).toBe("https://example.test/?avatar=mug&material=glass");
+    expect(readShare(new URL(link("glass")).search)).toEqual({ avatar: "mug", material: "glass" });
+    expect(reviveLook({ material: "glass" })?.material).toBe("glass");
+    expect(readShare("?material=velvet")).toEqual({});
+    expect(reviveLook({ material: "fluffy" })?.material).toBe("fluffy");
+    expect(reviveLook({ material: "velvet" })?.material).toBe("flat");
+  });
+
   it("still open links from before state and mood were separate", () => {
     expect(readShare("?avatar=mug&mood=happy")).toEqual({ avatar: "mug", state: "idle", mood: "happy" });
     expect(readShare("?avatar=mug&mood=thinking")).toEqual({ avatar: "mug", state: "thinking", mood: "neutral" });

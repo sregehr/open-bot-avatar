@@ -43,7 +43,8 @@ One live avatar: it idles, blinks and changes state smoothly.
 | `size` | Width in CSS pixels, or any CSS length. Default 64px; the element is square. You can also set its width in CSS. |
 | `follow-pointer` | Look toward the pointer. |
 | `still` | One static SVG, no animation: for long lists. |
-| `flat` | One flat color, no shading, grain or shadow. |
+| `texture` | What the avatar is made of: `flat` (one plain color, no shading, grain or shadow), `furry` (a coat of fur), `stone` (shaded and speckled like cast stone) or `glass`. Without it the avatar is shaded, and speckled only in the stone color. Fur and glass need WebGL2. |
+| `flat` | The same as `texture="flat"`. |
 | `label` | Accessible name. Default: the avatar's name; `""` marks it decorative. |
 
 A definition of your own goes in the `definition` property (it is validated, and wins over `avatar`).

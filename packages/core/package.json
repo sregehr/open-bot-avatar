@@ -1,6 +1,6 @@
 {
   "name": "open-bot-avatar",
-  "version": "0.3.1",
+  "version": "0.5.1",
   "description": "Small object characters with eyes: validate a silhouette + eyes definition and render it with implied 3D volume, idle motion, moods and gaze. No dependencies.",
   "keywords": ["avatar", "bot", "svg", "character", "animation", "css-3d", "mascot"],
   "license": "MIT",
@@ -21,7 +21,17 @@
       "types": "./dist/dom/index.d.ts",
       "default": "./dist/dom/index.js"
     },
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./materials/fluffy": {
+      "open-bot-avatar/source": "./src/dom/materials/fluffy.ts",
+      "types": "./dist/dom/materials/fluffy.d.ts",
+      "default": "./dist/dom/materials/fluffy.js"
+    },
+    "./materials/glass": {
+      "open-bot-avatar/source": "./src/dom/materials/glass.ts",
+      "types": "./dist/dom/materials/glass.d.ts",
+      "default": "./dist/dom/materials/glass.js"
+    }
   },
   "files": ["dist", "src"],
   "scripts": {

@@ -1,8 +1,11 @@
+import type { MaterialName } from "./look";
 /*
  * How the editor picks what the avatar is doing: one row of pills under the preview. Six are the
  * engine's states; the seventh, Happy, is its happy mood on an idle avatar. The engine keeps state
  * and mood apart (a host can ask for happy eyes on any state); the editor offers the one pairing
  * that looks different in the body as well as the eyes.
+ *
+ * The material is a toggle of faces in a corner of the preview.
  */
 import { useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import type { AvatarMood, AvatarState } from "open-bot-avatar";
@@ -51,7 +54,7 @@ interface RadioGroupProps<T extends string> {
   tips?: boolean;
 }
 
-function RadioGroup<T extends string>({ label, value, options, onChange, className, itemClassName, render, iconOnly, tips }: RadioGroupProps<T>) {
+export function RadioGroup<T extends string>({ label, value, options, onChange, className, itemClassName, render, iconOnly, tips }: RadioGroupProps<T>) {
   const refs = useRef<(HTMLButtonElement | null)[]>([]);
   const [hovered, setHovered] = useState<T | null>(null);
   const [focused, setFocused] = useState<T | null>(null);
@@ -111,4 +114,42 @@ export function StatePills({ state, mood, onLook }: { state: AvatarState; mood: 
   return (
     <RadioGroup label="State" value={expressionOf(state, mood)} options={EXPRESSIONS} onChange={(expression) => onLook(lookOf(expression))} className="pills pills-states" itemClassName="pill" tips />
   );
+}
+
+/* The material as a toggle of faces: one smooth, one with fur standing off its edge, one of glass. */
+
+const MATERIALS: Choice<MaterialName>[] = [
+  { value: "flat", label: "Flat", hint: "Solid color" },
+  { value: "fluffy", label: "Fluffy", hint: "Brushed fur" },
+  { value: "glass", label: "Glass", hint: "Glossy glass" },
+];
+
+const SMOOTH_FACE = "M4 12a8 8 0 1 0 16 0a8 8 0 1 0-16 0ZM8.9 10.2a1 1 0 0 1 2 0v3.2a1 1 0 0 1-2 0ZM13.1 10.2a1 1 0 0 1 2 0v3.2a1 1 0 0 1-2 0Z";
+/** A smaller face, so that with its fur it fills the same circle. */
+const FURRY_FACE = "M5.7 12a6.3 6.3 0 1 0 12.6 0a6.3 6.3 0 1 0-12.6 0ZM9.1 10.3a.95.95 0 0 1 1.9 0v2.9a.95.95 0 0 1-1.9 0ZM13 10.3a.95.95 0 0 1 1.9 0v2.9a.95.95 0 0 1-1.9 0Z";
+/** Hairs of uneven length and lean: evenly spaced ones read as a cog or a sun. */
+const FUR =
+  "M17.8 11.6 21.2 11M17.7 13.3 20.8 14.1M17.1 14.8 19.7 16.8M16.1 16.1 18.1 18.5M14.7 17.1 16 19.3M13.3 17.6 14.9 20.4M11.9 17.8 11.1 20.5M10.3 17.5 9.6 19.8M8.8 16.9 6.9 19.3M7.9 16.1 4.9 17.8M7 15 4.5 15.9M6.4 13.6 4.2 14.6M6.2 12.1 3.7 11.4M6.4 10.5 3.6 8.9M6.8 9.4 4.6 8.2M7.9 7.9 5.6 6.3M9.4 6.8 8.2 4.9M10.4 6.4 10.3 3.3M12 6.2 11.9 3.8M13.3 6.4 13.8 3.7M14.8 6.9 16.4 4.4M16 7.8 18.3 5.2M17.2 9.3 20 8.2M17.6 10.5 20.5 10.1";
+
+function Face({ material }: { material: MaterialName }) {
+  if (material === "glass") {
+    return (
+      <svg className="face-glyph" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <circle cx="12" cy="12" r="7.5" fill="none" stroke="currentColor" strokeWidth="1.7" />
+        <path d="M8.1 8.3a5.4 5.4 0 0 1 4.6-1.7" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+        <rect x="9" y="10.4" width="1.9" height="3.2" rx="0.95" fill="currentColor" />
+        <rect x="13.1" y="10.4" width="1.9" height="3.2" rx="0.95" fill="currentColor" />
+      </svg>
+    );
+  }
+  return (
+    <svg className="face-glyph" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d={material === "fluffy" ? FURRY_FACE : SMOOTH_FACE} fill="currentColor" fillRule="evenodd" />
+      {material === "fluffy" ? <path d={FUR} fill="none" stroke="currentColor" strokeWidth="1.15" strokeLinecap="round" /> : null}
+    </svg>
+  );
+}
+
+export function MaterialToggle({ material, onMaterial }: { material: MaterialName; onMaterial: (material: MaterialName) => void }) {
+  return <RadioGroup label="Material" value={material} options={MATERIALS} onChange={onMaterial} className="face-segmented" itemClassName="face-option" iconOnly render={(o) => <Face material={o.value} />} />;
 }

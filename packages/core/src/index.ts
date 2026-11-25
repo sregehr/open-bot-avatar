@@ -9,9 +9,10 @@ export {
   DEFAULT_DEPTH,
   DEFAULT_EYE_COLOR,
 } from './render.ts';
-export type { AvatarFrame, EyeGloss, EyeMark, EyeSpotlight, FramePath, FrameShape, Matrix, SceneFrame } from './render.ts';
-export { BASE_PITCH, BASE_YAW, DONE_CYCLE_S, DONE_TURN_S, MOODS, STATES, blendPoses, computePose, isMood, isState, resolveLook } from './motion.ts';
-export type { EyeLook, Limbs, Pose, PoseInput } from './motion.ts';
+export type { AvatarFrame, EyeGloss, EyeMark, EyeSpotlight, FramePath, FrameShape, Matrix, SceneFrame, SurfaceEye } from './render.ts';
+export { BASE_PITCH, BASE_YAW, DONE_CYCLE_S, DONE_TURN_S, MOODS, STATES, blendPoses, computePose, isMood, isState, resolveLook, stateDefinition } from './motion.ts';
+export type { AvatarStateDefinition, EyeLook, Limbs, Pose, PoseInput, StateContext } from './motion.ts';
+export type { AvatarMark, MarkContext, MarkPart, PoseMark } from './marks.ts';
 export { LIMB_MS, MOOD_MS, moodProgress, settleMood } from './mood.ts';
 export type { MoodState } from './mood.ts';
 export { REST, followGaze, followStep, pointerGaze } from './follow.ts';

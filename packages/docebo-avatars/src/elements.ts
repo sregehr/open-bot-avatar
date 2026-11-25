@@ -1,5 +1,7 @@
 import { renderAvatarSvg, validateAvatar, type AvatarDefinition, type AvatarMood, type AvatarState } from 'open-bot-avatar';
 import { mountAvatar, type AvatarOptions, type MountedAvatar } from 'open-bot-avatar/dom';
+import { fluffy } from 'open-bot-avatar/materials/fluffy';
+import { glass } from 'open-bot-avatar/materials/glass';
 import { AVATARS, DEFAULT_COLOR, SETS, STONE, eyeColorFor, getAvatar, type DoceboAvatar } from './avatars.ts';
 
 const STATES = ['idle', 'thinking', 'working', 'waiting', 'blocked', 'done'];
@@ -7,17 +9,26 @@ const STATES = ['idle', 'thinking', 'working', 'waiting', 'blocked', 'done'];
 const DEPTH = 10;
 const GRAIN = 0.85;
 
+/**
+ * What an avatar is made of, the `texture` attribute: `flat` is one plain color; `stone` is shaded
+ * and speckled like cast stone; `furry` is a coat of fur; `glass` is clear glass. Without one the
+ * avatar is shaded, and speckled only in Docebo's stone color.
+ */
+export const TEXTURES = ['flat', 'furry', 'stone', 'glass'] as const;
+export type Texture = (typeof TEXTURES)[number];
+
 const Base = (typeof HTMLElement === 'undefined' ? class {} : HTMLElement) as typeof HTMLElement;
 
 /**
  * <docebo-agent-avatar avatar="tutor-agent" state="working" size="96"></docebo-agent-avatar>
  *
  * One live avatar. Attributes: avatar (an id from AVATARS), color, eye-color, state, mood, size
- * (CSS pixels, or style the element's width), follow-pointer, still, flat, label. A definition of
+ * (CSS pixels, or style the element's width), follow-pointer, still, texture (flat, furry, stone or
+ * glass), flat (the same as texture="flat"), label. A definition of
  * your own goes in the `definition` property.
  */
 export class DoceboAgentAvatar extends Base {
-  static observedAttributes = ['avatar', 'color', 'eye-color', 'state', 'mood', 'size', 'follow-pointer', 'still', 'flat', 'label'];
+  static observedAttributes = ['avatar', 'color', 'eye-color', 'state', 'mood', 'size', 'follow-pointer', 'still', 'flat', 'texture', 'label'];
 
   #host: HTMLDivElement;
   #mounted: MountedAvatar | null = null;
@@ -62,7 +73,9 @@ export class DoceboAgentAvatar extends Base {
     const definition = this.#definition ?? known?.definition;
     if (!definition) return null;
     const color = this.getAttribute('color') || (this.#definition ? DEFAULT_COLOR : (known?.color ?? DEFAULT_COLOR));
-    const flat = this.hasAttribute('flat');
+    const named = (this.getAttribute('texture') ?? '').toLowerCase();
+    const texture = this.hasAttribute('flat') ? 'flat' : named === 'fluffy' ? 'furry' : (TEXTURES as readonly string[]).includes(named) ? (named as Texture) : null;
+    const flat = texture === 'flat';
     const state = this.getAttribute('state') ?? '';
     return {
       definition,
@@ -74,7 +87,9 @@ export class DoceboAgentAvatar extends Base {
       still: this.hasAttribute('still'),
       depth: flat ? undefined : DEPTH,
       shading: flat ? 0 : 1,
-      grain: !flat && color.toLowerCase() === STONE ? GRAIN : 0,
+      // A material brings its own surface: fur and glass need WebGL2, and are drawn shaded where there is none.
+      material: texture === 'furry' ? fluffy : texture === 'glass' ? glass : 'flat',
+      grain: texture === 'stone' || (texture === null && color.toLowerCase() === STONE) ? GRAIN : 0,
       shadow: !flat,
       label: this.getAttribute('label') ?? undefined,
     };

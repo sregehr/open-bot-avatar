@@ -101,7 +101,7 @@ const S = {
   style: 'branded',
   color: 'own',
   follow: true,
-  flat: false,
+  texture: 'stone',
   happy: false,
   active: 'harmony',
   // Docked beside the page where there is room; closed behind the ✦ button on narrow screens.
@@ -320,7 +320,7 @@ function snippet() {
   if (S.happy) attrs.push('mood="happy"');
   attrs.push('size="64"');
   if (S.follow) attrs.push('follow-pointer');
-  if (S.flat) attrs.push('flat');
+  attrs.push(`texture="${S.texture}"`);
   return `<script type="module" src="docebo-agent-avatars.js"></script>\n\n<!-- ${agent(id).name} -->\n<docebo-agent-avatar ${attrs.join(' ')}></docebo-agent-avatar>\n<docebo-avatar-picker value="${avatarOf(id)}"></docebo-avatar-picker>`;
 }
 
@@ -343,7 +343,7 @@ function refresh() {
     attr(el, 'mood', S.happy ? 'happy' : '');
     attr(el, 'label', agent(id).name);
     flag(el, 'follow-pointer', S.follow && !('quiet' in el.dataset) && !('still' in el.dataset));
-    flag(el, 'flat', S.flat);
+    attr(el, 'texture', S.texture);
     flag(el, 'still', 'still' in el.dataset);
   }
   for (const el of $$('[data-status]')) el.textContent = statusOf(el.dataset.status);
@@ -411,8 +411,9 @@ function build() {
     <label class="ctl"><span>Agent</span><select id="agent">${AGENTS.map((a) => `<option value="${a.id}">${a.name}</option>`).join('')}</select></label>
     <div class="ctl pick"><span>Avatar</span><button type="button" class="pick-btn" data-act="pick" aria-haspopup="dialog" aria-expanded="false"><docebo-agent-avatar data-agent="harmony" data-active data-fixed="idle" data-still size="24"></docebo-agent-avatar><span data-active-avatar></span><i aria-hidden="true">▾</i></button>
       <div class="pick-pop" role="dialog" aria-label="Choose an avatar" hidden><p><b data-active-name></b> wears this avatar on every page.</p><docebo-avatar-picker></docebo-avatar-picker></div></div>
+    <div class="ctl"><span>Texture</span>${seg('texture', [['flat', 'Flat'], ['furry', 'Furry'], ['stone', 'Stone'], ['glass', 'Glass']])}</div>
     <div class="ctl"><span>State</span>${seg('state', STATES.map((s) => [s, LABEL[s]]))}</div>
-    <div class="ctl"><span>Options</span><div class="checks">${[['follow', 'Follow pointer'], ['flat', 'Flat'], ['happy', 'Happy']].map(([k, l]) => `<label><input type="checkbox" data-opt="${k}"${S[k] ? ' checked' : ''} />${l}</label>`).join('')}</div></div>
+    <div class="ctl"><span>Options</span><div class="checks">${[['follow', 'Follow pointer'], ['happy', 'Happy']].map(([k, l]) => `<label><input type="checkbox" data-opt="${k}"${S[k] ? ' checked' : ''} />${l}</label>`).join('')}</div></div>
     <div class="go"><button class="btn primary" data-act="run">Run a task</button><button class="btn" data-act="code">Embed code</button><a class="btn" id="editor" href="http://localhost:5173/docebo-agent-avatars/">Avatar editor</a></div>
     <pre class="code" id="code" hidden></pre>`;
   // The editor (apps/site) is served elsewhere: its dev server, unless VITE_EDITOR_URL names another place.
