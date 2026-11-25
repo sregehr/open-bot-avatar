@@ -9,7 +9,8 @@ import type { EyeMark, SurfaceEye, ViewBasis } from '../../render.ts';
 import type { Volume, VolumePart } from '../../volume.ts';
 import { halfDepth, type Capsule, type MaterialShape } from '../materials/shape.ts';
 import { SOCKET_TILE, exposedHeight, socketKey, socketRegion, socketTile } from '../materials/socket.ts';
-import { fragmentShader, vertexShader } from './shaders.ts';
+import type { MaterialPiece } from '../materials/material.ts';
+import { MAX_PIECES, fragmentShader, vertexShader } from './shaders.ts';
 
 export type GlassShape = MaterialShape;
 
@@ -381,7 +382,14 @@ function colorReader(): (color: string) => Rgb {
   };
 }
 
-type Renderer = (shape: GlassShape, view: ViewBasis, look: GlassLook, scale: number) => GlassImage | null;
+interface Renderer {
+  (shape: GlassShape, view: ViewBasis, look: GlassLook, scale: number): GlassImage | null;
+  jointed(body: Volume, pieces: MaterialPiece[], view: ViewBasis, look: GlassLook, scale: number): GlassImage | null;
+}
+
+/** A jointed body's image reaches this much further than the body at rest: an arm held out, a leg kicked. */
+const JOINTED_REACH = 1.3;
+const NO_MOVE = { r: [1, 0, 0, 0, 1, 0, 0, 0, 1], t: [0, 0, 0] };
 
 function createRenderer(onContextRestored: () => void): Renderer | null {
   const canvas = document.createElement('canvas');
@@ -412,7 +420,16 @@ function createRenderer(onContextRestored: () => void): Renderer | null {
     ink: uniform('ink'),
     eyeRegion: uniform('eyeRegion[0]'),
     eyeSize: uniform('eyeSize[0]'),
+    pieceCount: uniform('pieceCount'),
+    pieceMin: uniform('pieceMin[0]'),
+    pieceSpan: uniform('pieceSpan[0]'),
+    pieceTurn: uniform('pieceTurn[0]'),
+    pieceShift: uniform('pieceShift[0]'),
+    eyePiece: uniform('eyePiece'),
   };
+  // Units 0 and 1 are the single field and the eyes; each piece of a jointed body has its own from 2 on.
+  const PIECE_UNIT = 2;
+  for (let i = 0; i < MAX_PIECES; i++) gl.uniform1i(uniform(`pieceField${i}`), PIECE_UNIT + i);
 
   const vao = gl.createVertexArray();
   gl.bindVertexArray(vao);
@@ -544,7 +561,105 @@ function createRenderer(onContextRestored: () => void): Renderer | null {
     contours: ['', ''],
   };
 
-  return (shape, view, look, scale) => {
+  /** Write the eyes' sockets and their tiles, the colors and the view: what both kinds of body share. */
+  const setLook = (eyeZ: readonly number[], view: ViewBasis, look: GlassLook) => {
+    regions.fill(0);
+    const contours = ['', ''];
+    look.eyes.forEach(({ mark, dx, dy }, slot) => {
+      const region = socketRegion(mark);
+      regions.set([region.cx + dx, region.cy + dy, region.span, (eyeZ[slot] ?? 0) + SOCKET_RISE], 4 * slot);
+      sizes.set([region.w, region.h * exposedHeight(region.w, region.h)], 2 * slot);
+      contours[slot] = socketKey(mark);
+    });
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, eyeTex);
+    look.eyes.forEach(({ mark }, slot) => {
+      if (contours[slot] === shown.contours[slot]) return;
+      gl.texSubImage2D(gl.TEXTURE_2D, 0, slot * SOCKET_TILE, 0, SOCKET_TILE, SOCKET_TILE, gl.RED, gl.UNSIGNED_BYTE, tileOf(mark, contours[slot]));
+    });
+    shown.contours = contours;
+    gl.uniform4fv(u.eyeRegion, regions);
+    gl.uniform2fv(u.eyeSize, sizes);
+    const [r, g, b] = readColor(look.color);
+    gl.uniform3f(u.color, r / 255, g / 255, b / 255);
+    const [inkR, inkG, inkB] = readColor(look.ink);
+    gl.uniform3f(u.ink, inkR / 255, inkG / 255, inkB / 255);
+    gl.uniformMatrix3fv(u.view, false, [view.cY, view.sY * view.sP, -view.sY * view.cP, 0, view.cP, view.sP, view.sY, -view.cY * view.sP, view.facing]);
+  };
+
+  const mins = new Float32Array(3 * MAX_PIECES), spans = new Float32Array(3 * MAX_PIECES);
+  const turns = new Float32Array(9 * MAX_PIECES), shifts = new Float32Array(3 * MAX_PIECES);
+  /** What the last jointed image was drawn from: a body that holds still is not drawn again. */
+  let jointedKey = '';
+
+  /**
+   * A rigged character's body as one piece of glass: every piece's field, each where its joints
+   * have turned it, joined smoothly in the shader, so no edge shows at a shoulder or a knee.
+   */
+  const jointed = (body: Volume, pieces: MaterialPiece[], view: ViewBasis, look: GlassLook, scale: number): GlassImage | null => {
+    if (gl.isContextLost() || pieces.length === 0 || pieces.length > MAX_PIECES) return null;
+    // The piece with the eyes is as fine as a whole body's field; a limb's small box is fine enough at the lower one.
+    const baked = pieces.map((piece) => shapeOf(piece.shape, piece.eyes && scale >= 1.4));
+    const b = body.bounds;
+    const rx = (b.maxX - b.minX) / 2, ry = (b.maxY - b.minY) / 2, cx = b.minX + rx, cy = b.minY + ry;
+    const depth = Math.max(...baked.map((piece) => piece.halfDepth));
+    const radius = Math.ceil(Math.hypot(rx, ry, depth) * JOINTED_REACH + GLASS_REACH);
+    const pixels = Math.min(MAX_PIXELS, Math.max(MIN_PIXELS, Math.ceil(2 * radius * scale)));
+    if (canvas.width < pixels) canvas.width = canvas.height = pixels;
+    const image = { canvas, x: 0, y: canvas.height - pixels, size: pixels, cx, cy, radius };
+
+    let eyePiece = -1;
+    pieces.forEach((piece, i) => {
+      const { r, t } = piece.move ?? NO_MOVE;
+      mins.set(baked[i].boxMin, 3 * i);
+      spans.set(baked[i].boxSpan, 3 * i);
+      // Back to where the piece was: the rotation's inverse is its transpose, which its rows read as columns are.
+      turns.set(r, 9 * i);
+      shifts.set(t, 3 * i);
+      if (piece.eyes) eyePiece = i;
+    });
+    const key = [
+      pixels, look.color, look.ink, view.cY.toFixed(4), view.sY.toFixed(4), view.sP.toFixed(4),
+      ...look.eyes.map(({ mark, dx, dy }) => `${socketKey(mark)}:${dx.toFixed(2)}:${dy.toFixed(2)}`),
+      ...baked.map((piece, i) => `${piece.gridXY}:${Array.from(turns.subarray(9 * i, 9 * i + 9), (n) => n.toFixed(3)).join()}:${Array.from(shifts.subarray(3 * i, 3 * i + 3), (n) => n.toFixed(2)).join()}`),
+    ].join('|');
+    if (key === jointedKey && shown.baked === null) return image;
+    jointedKey = key;
+    // The canvas no longer holds a single shape's image.
+    shown.baked = null;
+    shown.view = null;
+
+    setLook(body.eyeZ, view, look);
+    for (let i = 0; i < MAX_PIECES; i++) {
+      gl.activeTexture(gl.TEXTURE0 + PIECE_UNIT + i);
+      gl.bindTexture(gl.TEXTURE_3D, baked[i]?.texture ?? dummyTex);
+    }
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_3D, dummyTex);
+    gl.uniform1i(u.pieceCount, pieces.length);
+    gl.uniform1i(u.eyePiece, eyePiece);
+    gl.uniform3fv(u.pieceMin, mins);
+    gl.uniform3fv(u.pieceSpan, spans);
+    gl.uniformMatrix3fv(u.pieceTurn, false, turns);
+    gl.uniform3fv(u.pieceShift, shifts);
+    // Normals are taken over the coarsest piece's spacing, so none is sampled finer than it is stored.
+    gl.uniform2f(u.voxelStep, Math.max(...baked.map((piece) => piece.voxelStep[0])), Math.max(...baked.map((piece) => piece.voxelStep[1])));
+    gl.uniform3f(u.pivot, cx, cy, 0);
+    gl.uniform1f(u.radius, radius);
+    gl.uniform1f(u.halfDepth, depth);
+    gl.uniform1f(u.bottomY, b.maxY);
+    gl.uniform1f(u.pixelSize, (2 * radius) / pixels);
+    gl.uniform1i(u.isCapsule, 0);
+
+    gl.viewport(0, 0, pixels, pixels);
+    gl.scissor(0, 0, pixels, pixels);
+    gl.clearColor(0, 0, 0, 0);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    return image;
+  };
+
+  const single = (shape: GlassShape, view: ViewBasis, look: GlassLook, scale: number): GlassImage | null => {
     if (gl.isContextLost()) return null;
     const baked = shapeOf(shape, scale >= 1.4);
     const { cx, cy, radius } = baked;
@@ -603,6 +718,8 @@ function createRenderer(onContextRestored: () => void): Renderer | null {
     gl.uniform1f(u.pixelSize, (2 * radius) / pixels);
     gl.uniform1i(u.isCapsule, baked.capsule ? 1 : 0);
     gl.uniform2fv(u.capsuleDims, baked.capsuleDims);
+    gl.uniform1i(u.pieceCount, 0);
+    jointedKey = '';
 
     const [r, g, b] = readColor(look.color);
     gl.uniform3f(u.color, r / 255, g / 255, b / 255);
@@ -617,11 +734,12 @@ function createRenderer(onContextRestored: () => void): Renderer | null {
     gl.drawArrays(gl.TRIANGLES, 0, 3);
     return image;
   };
+  return Object.assign(single, { jointed });
 }
 
 let renderer: Renderer | null | undefined;
 
-export function renderGlass(shape: GlassShape, view: ViewBasis, look: GlassLook, scale: number): GlassImage | null {
+function theRenderer(): Renderer | null {
   if (renderer === undefined) {
     renderer = null;
     try {
@@ -630,5 +748,14 @@ export function renderGlass(shape: GlassShape, view: ViewBasis, look: GlassLook,
       console.warn('open-bot-avatar: glass is unavailable, drawing flat', error);
     }
   }
-  return renderer?.(shape, view, look, scale) ?? null;
+  return renderer;
+}
+
+export function renderGlass(shape: GlassShape, view: ViewBasis, look: GlassLook, scale: number): GlassImage | null {
+  return theRenderer()?.(shape, view, look, scale) ?? null;
+}
+
+/** A rigged character's body from its pieces, as one surface (see CanvasMaterial.renderJointed). */
+export function renderGlassJointed(body: Volume, pieces: MaterialPiece[], view: ViewBasis, look: GlassLook, scale: number): GlassImage | null {
+  return theRenderer()?.jointed(body, pieces, view, look, scale) ?? null;
 }

@@ -15,7 +15,7 @@ interface StageProps {
   shading: number;
   grain: number;
   shadow: boolean;
-  /** The body's finish. A rigged character is always drawn flat (see coated). */
+  /** The body's finish. */
   material: MaterialName;
   state: AvatarState;
   mood: AvatarMood;
@@ -43,9 +43,6 @@ export function Stage({ definition, color, depth, shading, grain, shadow, materi
   const [dragging, setDragging] = useState(false);
   const easing = useRef(0);
   const turned = Math.abs(view.yaw) > 0.01 || Math.abs(view.pitch) > 0.01;
-  // A material coats the body as one surface, which a character that moves its limbs is not: it stays flat, and has no toggle.
-  const coated = !definition.rig?.length;
-  const finish = coated ? material : "flat";
 
   useEffect(() => () => cancelAnimationFrame(easing.current), []);
 
@@ -141,7 +138,7 @@ export function Stage({ definition, color, depth, shading, grain, shadow, materi
         shading={shading}
         grain={grain}
         shadow={shadow}
-        material={finish}
+        material={material}
         state={state}
         mood={mood}
         view={view}
@@ -150,7 +147,7 @@ export function Stage({ definition, color, depth, shading, grain, shadow, materi
         reducedMotion={reducedMotion}
         label=""
       />
-      {finish === "glass" && state !== "thinking" && state !== "blocked" ? (
+      {material === "glass" && state !== "thinking" && state !== "blocked" ? (
         <div
           className="stage-glass-caustic"
           aria-hidden="true"
@@ -158,11 +155,9 @@ export function Stage({ definition, color, depth, shading, grain, shadow, materi
         />
       ) : null}
       {/* Over the preview: keep its drag, double-click reset and arrow-key turning out of it. */}
-      {coated ? (
-        <div className="stage-bar" onPointerDown={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
-          <MaterialToggle material={material} onMaterial={onMaterial} />
-        </div>
-      ) : null}
+      <div className="stage-bar" onPointerDown={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
+        <MaterialToggle material={material} onMaterial={onMaterial} />
+      </div>
       <button
         type="button"
         className="stage-reset"

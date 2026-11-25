@@ -1,4 +1,5 @@
 import type { SurfaceEye, ViewBasis } from '../../render.ts';
+import type { Volume } from '../../volume.ts';
 import type { MaterialShape } from './shape.ts';
 
 /** An image valid until the next render; the canvas painter copies it immediately. */
@@ -16,6 +17,18 @@ export interface MaterialLook {
   color: string;
   ink: string;
   eyes: SurfaceEye[];
+}
+
+/**
+ * One piece of a rigged character's body (see SurfacePiece): its parts as a volume of their own,
+ * and where its joints have moved it (a rotation, row by row, then a shift; none for a piece
+ * that has not moved).
+ */
+export interface MaterialPiece {
+  shape: Volume;
+  move?: { r: number[]; t: [number, number, number] };
+  /** The piece carries the eyes. */
+  eyes: boolean;
 }
 
 /**
@@ -39,6 +52,12 @@ export interface CanvasMaterial {
    * unavailable or does not draw this kind of shape; the painter falls back to flat paths and eyes.
    */
   render(shape: MaterialShape, view: ViewBasis, look: MaterialLook, scale: number): MaterialImage | null;
+  /**
+   * Render a rigged character's whole body from its pieces as one surface, with no seam where
+   * they meet. `body` is the body at rest: it gives the image its middle. A material without
+   * this, or one that returns null, is given the pieces one at a time through `render`.
+   */
+  renderJointed?(body: Volume, pieces: MaterialPiece[], view: ViewBasis, look: MaterialLook, scale: number): MaterialImage | null;
 }
 
 /** A flat fill (default), or an explicitly imported canvas material (see AvatarOptions). */

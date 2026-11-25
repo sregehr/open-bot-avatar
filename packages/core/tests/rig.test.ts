@@ -92,4 +92,23 @@ describe('rig', () => {
     expect(still('idle')).not.toBe(still('blocked'));
     expect(avatarFrame(scout, { state: 'blocked', reducedMotion: true }).shapes.some((shape) => shape.kind === 'eye')).toBe(true);
   });
+
+  it('comes in pieces for a material, the head last and carrying the eyes', () => {
+    expect(avatarFrame(box as AvatarDefinition, { reducedMotion: true }).surface.pieces).toBeUndefined();
+    const pieces = avatarFrame(scout, { reducedMotion: true }).surface.pieces ?? [];
+    // Every part of the volume is in exactly one piece.
+    const parts = pieces.flatMap((piece) => piece.parts).sort((a, b) => a - b);
+    expect(parts).toEqual(parts.map((_, i) => i));
+    expect(pieces.filter((piece) => piece.eyes)).toHaveLength(1);
+    expect(pieces[pieces.length - 1].eyes).toBe(true);
+    // Standing idle, arms hang a little out from the body and nothing is turned far: each piece is seen nearly as the body is.
+    const { view } = avatarFrame(scout, { reducedMotion: true }).surface;
+    for (const piece of pieces) {
+      expect(Math.abs(piece.roll)).toBeLessThan(0.2);
+      expect(piece.view.sP).toBeCloseTo(view.sP, 1);
+    }
+    // A raised arm turns on screen.
+    const waving = avatarFrame(scout, { state: 'done', stateAge: 1.5, time: 1.5 }).surface.pieces ?? [];
+    expect(waving.some((piece) => Math.abs(piece.roll) > 1)).toBe(true);
+  });
 });

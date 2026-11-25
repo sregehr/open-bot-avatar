@@ -704,7 +704,7 @@ export interface AvatarFrame {
    * material): the view's rotation, the body's scale as it gives way to a mark, and both eyes,
    * including an eye `shapes` leaves out because its spot faces away.
    */
-  surface: { view: ViewBasis; scale: number; eyes: SurfaceEye[] };
+  surface: { view: ViewBasis; scale: number; eyes: SurfaceEye[]; pieces?: SurfacePiece[] };
   /**
    * With `shading`: light from the upper left, as a linear gradient in viewBox coordinates (outside
    * `root`) to paint over everything the shapes covered, and only there.
@@ -714,6 +714,26 @@ export interface AvatarFrame {
   grain?: number;
   /** With `shadow`: an ellipse on the ground, outside `root`, fading from `opacity` at its center to nothing. Paint it first. */
   shadow?: { cx: number; cy: number; rx: number; ry: number; opacity: number };
+}
+
+/**
+ * A rigged character's body is not one surface: its limbs turn on their joints. For a renderer
+ * that draws surfaces it comes in pieces, back to front, each a set of the volume's parts that
+ * move as one (the trunk, the head, an upper arm, a shin with its shoe).
+ */
+export interface SurfacePiece {
+  /** Indices into the volume's parts. */
+  parts: number[];
+  /** The piece as the viewer sees it: this view of it, then turned `roll` radians on screen (clockwise). */
+  view: ViewBasis;
+  roll: number;
+  /** Where the middle of the piece's bounds (at depth 0) lands, viewBox units, inside `root`. */
+  x: number;
+  y: number;
+  /** The piece carries the eyes. */
+  eyes: boolean;
+  /** Where its joints have moved the piece from how it is drawn: a rotation, row by row, then a shift. None for the trunk. */
+  move?: { r: number[]; t: Vec3 };
 }
 
 /**
@@ -1025,6 +1045,46 @@ function shadeSlices(items: { depth: number; part?: number; shape: FrameShape }[
   }
 }
 
+/** Which piece lies over which where neither is in front: legs under the trunk, arms over it, the head over them all. */
+const PIECE_RANK: Record<string, number> = { shin: 0, leg: 1, trunk: 2, arm: 3, forearm: 4, head: 5 };
+/** A piece this far in front of the mid-plane or behind it, viewBox units, is ordered by that instead. */
+const PIECE_CLEAR = 0.75;
+
+/**
+ * The pieces of a rigged body (see SurfacePiece), back to front. Each is one image, so they cannot
+ * be ordered slice by slice as the flat body is: a piece its joint has brought forward (a hand to
+ * the chin) or back goes by how far, and the rest in a fixed order.
+ */
+function surfacePieces(def: AvatarDefinition, vol: Volume, v: ViewBasis, pivot: Point, moves: Map<number, Rigid>): SurfacePiece[] {
+  const roles = new Map((def.rig ?? []).map((j) => [j.part, j.role as string]));
+  const groups = new Map<string, number[]>();
+  vol.parts.forEach((_, i) => {
+    const role = roles.get(i) ?? 'trunk';
+    groups.set(role, [...(groups.get(role) ?? []), i]);
+  });
+  // The view as a rotation: rows are screen x, screen y and depth toward the viewer.
+  const view = [v.cY, 0, v.sY, v.sY * v.sP, v.cP, -v.cY * v.sP, -v.cP * v.sY, v.sP, v.cP * v.cY];
+  return [...groups.entries()]
+    .map(([role, parts]) => {
+      const g = moves.get(parts[0]);
+      const b = parts.map((i) => vol.parts[i].bounds);
+      const cx = (Math.min(...b.map((q) => q.minX)) + Math.max(...b.map((q) => q.maxX))) / 2;
+      const cy = (Math.min(...b.map((q) => q.minY)) + Math.max(...b.map((q) => q.maxY))) / 2;
+      const mid: Vec3 = g ? moved(g, [cx, cy, 0]) : [cx, cy, 0];
+      const [x, y] = projectPoint(v, mid, pivot);
+      const depth = Math.abs(mid[2]) < PIECE_CLEAR ? 0 : v.facing * mid[2];
+      // The piece's own turn, then the view: again a view (a yaw and a pitch), turned on screen.
+      const t = new Array<number>(9);
+      for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) t[i * 3 + j] = g ? view[i * 3] * g.r[j] + view[i * 3 + 1] * g.r[3 + j] + view[i * 3 + 2] * g.r[6 + j] : view[i * 3 + j];
+      const sP = clamp(t[7], -1, 1), cP = Math.sqrt(1 - sP * sP);
+      const [sY, cY] = cP > 1e-6 ? [-t[6] / cP, t[8] / cP] : [0, 1];
+      const roll = Math.atan2(t[3] * cY + t[5] * sY, t[0] * cY + t[2] * sY);
+      return { parts, view: { cY, sY, cP, sP, facing: cY * cP }, roll, x, y, eyes: parts.includes(vol.eyePart), ...(g ? { move: { r: g.r, t: g.t } } : {}), depth, rank: PIECE_RANK[role.split('-')[0]] ?? 2 };
+    })
+    .sort((a, c) => a.depth - c.depth || a.rank - c.rank)
+    .map(({ depth: _, rank: __, ...piece }) => piece);
+}
+
 function flatFrame(definition: AvatarDefinition, options: RenderOptions, size: number | undefined): AvatarFrame {
   const p = prepare(definition, depthOption(options));
   const { vol } = p;
@@ -1115,7 +1175,7 @@ function flatFrame(definition: AvatarDefinition, options: RenderOptions, size: n
   const frame: AvatarFrame = {
     name: p.def.name, color, ink, paths: [...paths.values()], root,
     shapes: [...ribbon(false), ...items.map((it) => it.shape), ...ribbon(true), ...marks],
-    surface: { view: v, scale: fx.body, eyes },
+    surface: { view: v, scale: fx.body, eyes, ...(moves && fx.body > 0 ? { pieces: surfacePieces(p.def, vol, v, pivot, moves) } : {}) },
   };
   const amount = clamp(Number.isFinite(options.shading) ? (options.shading as number) : 0, 0, 1);
   if (amount > 0 && fx.body > 0) {

@@ -16,7 +16,7 @@
  * the fluffy renderer (see fluffy/renderer.ts) in place of the slices and eye marks.
  */
 import { avatarExtent, preparedVolume } from '../render.ts';
-import type { AvatarFrame, EyeGloss, EyeMark, EyeSpotlight, FramePath, FrameShape, Matrix } from '../render.ts';
+import type { AvatarFrame, EyeGloss, EyeMark, EyeSpotlight, FramePath, FrameShape, Matrix, SurfacePiece } from '../render.ts';
 import type { AvatarDefinition } from '../types.ts';
 import type { Volume } from '../volume.ts';
 import { eyeBox, paintEye } from './eye.ts';
@@ -157,8 +157,10 @@ export interface CanvasSurface {
   key: string;
   canvas: HTMLCanvasElement;
   ctx: CanvasRenderingContext2D | null;
-  /** The avatar's volume, for a material's coat: built when first asked for. Null at depth 0, which has no surface to coat, and for a rigged character. */
+  /** The avatar's volume, for a material's coat: built when first asked for. Null at depth 0, which has no surface to coat. */
   volume: (() => Volume) | null;
+  /** A rigged character's pieces as volumes of their own (see SurfacePiece), by their parts. */
+  pieces: Map<string, Volume>;
   cap: Square;
   fit: Square | null;
   layout: string;
@@ -178,9 +180,8 @@ export function mountCanvas(el: HTMLElement, key: string, definition: AvatarDefi
   el.replaceChildren(wrap);
   let volume: Volume | undefined;
   return {
-    key, canvas, ctx: canvas.getContext('2d'), cap, fit: null, layout: '', left: 0, top: 0,
-    // A rigged character moves its limbs, which a coat of the body at rest would not: it is drawn flat.
-    volume: depth === 0 || definition.rig?.length ? null : () => (volume ??= preparedVolume(definition, depth).vol),
+    key, canvas, ctx: canvas.getContext('2d'), cap, fit: null, layout: '', left: 0, top: 0, pieces: new Map(),
+    volume: depth === 0 ? null : () => (volume ??= preparedVolume(definition, depth).vol),
   };
 }
 
@@ -232,10 +233,57 @@ export function paintCanvas(surface: CanvasSurface, frame: AvatarFrame, size: nu
 
   // The whole body and its eyes as one image, unless it has shrunk away into a mark.
   const { view, scale: bodyScale, eyes } = frame.surface;
-  const coat = finish && volume && bodyScale > 0.001
+  // A rigged character is coated piece by piece, each where its joints have turned it.
+  const pieces = finish && volume && bodyScale > 0.001 ? frame.surface.pieces : undefined;
+  const coat = finish && volume && bodyScale > 0.001 && !pieces
     ? finish.render(volume(), view, { color: fill, ink, eyes }, scale)
     : null;
   let coatPainted = false;
+  /** Whether the pieces took the body's place: decided at its first cross-section. False where the material cannot draw them. */
+  let pieced: boolean | undefined;
+  const paintPieces = (): boolean => {
+    if (!finish || !volume || !pieces) return false;
+    const whole = volume();
+    const [a, b, c, d, e, f] = frame.root;
+    const partOf = (piece: SurfacePiece): Volume => {
+      const key = piece.parts.join();
+      let part = surface.pieces.get(key);
+      if (!part) {
+        const bounds = piece.parts.map((i) => whole.parts[i].bounds);
+        part = {
+          ...whole,
+          parts: piece.parts.map((i) => whole.parts[i]),
+          bounds: { minX: Math.min(...bounds.map((q) => q.minX)), minY: Math.min(...bounds.map((q) => q.minY)), maxX: Math.max(...bounds.map((q) => q.maxX)), maxY: Math.max(...bounds.map((q) => q.maxY)) },
+        };
+        surface.pieces.set(key, part);
+      }
+      return part;
+    };
+    // As one surface where the material can join the pieces, so no joint shows.
+    const joined = finish.renderJointed?.(whole, pieces.map((piece) => ({ shape: partOf(piece), move: piece.move, eyes: piece.eyes })), view, { color: fill, ink, eyes }, scale);
+    if (joined) {
+      ctx.setTransform(scale * a, scale * b, scale * c, scale * d, scale * e - surface.left, scale * f - surface.top);
+      const radius = joined.radius * bodyScale;
+      ctx.drawImage(joined.canvas, joined.x, joined.y, joined.size, joined.size, joined.cx - radius, joined.cy - radius, 2 * radius, 2 * radius);
+      return true;
+    }
+    for (let n = 0; n < pieces.length; n++) {
+      const piece = pieces[n], part = partOf(piece);
+      // The image is the material's own canvas until its next render: it is drawn at once.
+      const image = finish.render(part, piece.view, { color: fill, ink, eyes: piece.eyes ? eyes : [] }, scale);
+      if (!image) {
+        if (n === 0) return false;
+        continue;
+      }
+      const cos = Math.cos(piece.roll), sin = Math.sin(piece.roll);
+      const m: Matrix = [a * cos + c * sin, b * cos + d * sin, c * cos - a * sin, d * cos - b * sin, a * piece.x + c * piece.y + e, b * piece.x + d * piece.y + f];
+      ctx.setTransform(scale * m[0], scale * m[1], scale * m[2], scale * m[3], scale * m[4] - surface.left, scale * m[5] - surface.top);
+      // A pixel in from the image's edge: the canvas beyond it may hold another piece, which a turned image would sample.
+      const r = image.radius * (1 - 2 / image.size);
+      ctx.drawImage(image.canvas, image.x + 1, image.y + 1, image.size - 2, image.size - 2, -r, -r, 2 * r, 2 * r);
+    }
+    return true;
+  };
   ctx.lineCap = 'round';
   ctx.strokeStyle = ink;
   ctx.fillStyle = fill;
@@ -252,6 +300,8 @@ export function paintCanvas(surface: CanvasSurface, frame: AvatarFrame, size: nu
         // In the material where it can draw the part, else as a plain fill.
         if (current !== fill) ctx.fillStyle = current = fill;
         if (!finish || !paintMark(finish, ctx, section, scale, fill)) ctx.fill(section.path, section.rule);
+      } else if (pieces && (pieced ??= paintPieces())) {
+        // The pieces took the place of the first cross-section.
       } else if (!coat) {
         const want = shaded && shape.fill ? shape.fill : fill;
         if (shaded && shape.fill && shape.fade) {
@@ -273,7 +323,7 @@ export function paintCanvas(surface: CanvasSurface, frame: AvatarFrame, size: nu
       }
     } else if (shape.kind === 'eye') {
       // A coat comes with its eyes set into it.
-      if (coat) return;
+      if (coat || pieced) return;
       glossyEye(ctx, shape.mark, shape.gloss, ink);
       ctx.fillStyle = current = fill;
     } else {
@@ -286,7 +336,7 @@ export function paintCanvas(surface: CanvasSurface, frame: AvatarFrame, size: nu
     }
   };
   // A material brings its own light and surface: shading and grain are for the flat finish.
-  const lit = !coat && (!!frame.light || !!frame.grain);
+  const lit = !coat && !pieces && (!!frame.light || !!frame.grain);
   if (!lit && !frame.shadow) {
     for (let i = 0; i < frame.shapes.length; i++) paintShape(i);
     return;

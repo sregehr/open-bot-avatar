@@ -17,6 +17,10 @@ void main() {
   vNdc = POS[gl_VertexID];
 }`;
 
+/** How many pieces a jointed body may have (see renderGlassJointed): each is a 3D texture of its own. */
+export const MAX_PIECES = 12;
+const PIECES = Array.from({ length: MAX_PIECES }, (_, i) => i);
+
 export const fragmentShader = `#version 300 es
 precision highp float;
 precision highp int;
@@ -40,14 +44,44 @@ uniform mat3 view;                   // yaw-then-pitch rotation matrix (model ->
 uniform vec3 color;                  // glass tint color (0..1)
 uniform vec3 ink;                    // eye ink color (0..1)
 uniform vec4 eyeRegion[2];           // face-plane center, square span, max host depth
+// A jointed body: pieceCount fields, each where its joints have turned it (local = pieceTurn * (p - pieceShift)).
+uniform int pieceCount;              // 0 for one field (volumeField)
+${PIECES.map((i) => `uniform highp sampler3D pieceField${i};`).join('\n')}
+uniform vec3 pieceMin[${MAX_PIECES}];
+uniform vec3 pieceSpan[${MAX_PIECES}];
+uniform mat3 pieceTurn[${MAX_PIECES}];
+uniform vec3 pieceShift[${MAX_PIECES}];
+uniform int eyePiece;                // the piece that carries the eyes, or -1
 uniform vec2 eyeSize[2];
 
 const float FAR = ${float(SOCKET_PAD)};
 const float IOR = 1.50;
 const float F0  = 0.04;
 
+// One piece of a jointed body, joined to the distance so far. A piece whose box is further off than that is skipped.
+const float JOIN = 1.1;
+float joinPiece(float d, highp sampler3D field, int i, vec3 p) {
+  vec3 q = pieceTurn[i] * (p - pieceShift[i]);
+  q.z = abs(q.z);
+  vec3 cl = clamp(q, pieceMin[i], pieceMin[i] + pieceSpan[i]);
+  float outDist = length(q - cl);
+  if (outDist >= d + JOIN) return d;
+  vec3 texSize = vec3(textureSize(field, 0));
+  vec3 uvw = ((cl - pieceMin[i]) / pieceSpan[i] * (texSize - 1.0) + 0.5) / texSize;
+  float inside = texture(field, uvw).r;
+  float e = outDist > 0.0001 ? max(-inside, 0.0) + outDist : -inside;
+  // A smooth union: where two pieces meet the glass runs from one into the other, with no edge between them.
+  float h = max(JOIN - abs(d - e), 0.0) / JOIN;
+  return min(d, e) - h * h * JOIN * 0.25;
+}
+
 // Exact 3D Signed Distance (negative inside, positive outside) directly from Volume.parts!
 float mapSDF(vec3 p) {
+  if (pieceCount > 0) {
+    float d = 1000.0;
+${PIECES.map((i) => `    if (pieceCount > ${i}) d = joinPiece(d, pieceField${i}, ${i}, p);`).join('\n')}
+    return d;
+  }
   if (isCapsule == 1) {
     vec3 q = p - pivot;
     q.y -= clamp(q.y, -capsuleDims.y, capsuleDims.y);
@@ -260,7 +294,13 @@ vec4 traceRay(vec2 screenXY, mat3 invView, vec3 jewelTint, vec3 absorbSigma) {
   if (isCapsule == 0) {
     vec2 eyeUV;
     vec3 local;
-    float dEye = socketDistance(p1, n1, eyeUV, local);
+    // The eyes are set in their own piece: looked up where it was before its joint turned it.
+    vec3 pEye = p1, nEye = n1;
+    if (pieceCount > 0 && eyePiece >= 0) {
+      pEye = pieceTurn[eyePiece] * (p1 - pieceShift[eyePiece]);
+      nEye = pieceTurn[eyePiece] * n1;
+    }
+    float dEye = pieceCount > 0 && eyePiece < 0 ? FAR : socketDistance(pEye, nEye, eyeUV, local);
     if (dEye < 1.8) {
       float lip = smoothstep(0.95, 0.04, dEye) * smoothstep(-0.06, 0.18, dEye);
       float lowerRight = smoothstep(-0.25, 0.85, local.y * 0.80 + local.x * 0.45);

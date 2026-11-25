@@ -16,11 +16,9 @@ const side = Math.ceil(Math.sqrt(keys.length));
  * Bake it again after a change to how fluffy looks: pnpm --filter site thumbnails.
  */
 export function AvatarThumbnail({ definition, color, material, ...volume }: { definition: AvatarDefinition; color: string; material: MaterialName } & Pick<BotAvatarProps, "depth" | "shading" | "grain" | "shadow">) {
-  // A rigged character is drawn flat whatever the material (see Stage).
-  const finish = definition.rig?.length ? "flat" : material;
-  const cell = finish === "fluffy" ? cells.get(thumbnailKey(definition, color)) : undefined;
+  const cell = material === "fluffy" ? cells.get(thumbnailKey(definition, color)) : undefined;
   if (cell === undefined) {
-    return <BotAvatar className="avatar-view" definition={definition} color={color} material={finish} {...volume} still view={THUMB_VIEW} lookAt={THUMB_LOOK} label="" />;
+    return <BotAvatar className="avatar-view" definition={definition} color={color} material={material} {...volume} still view={THUMB_VIEW} lookAt={THUMB_LOOK} label="" />;
   }
   // Background positions in percent run from the first cell (0%) to the last (100%).
   const step = 100 / Math.max(1, side - 1);
