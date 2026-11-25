@@ -22,16 +22,16 @@ describe('rig', () => {
 
   it('leaves an avatar without one alone', () => {
     const base = { seed: 7, time: 3, reducedMotion: false } as const;
-    expect(computePose({ ...base, state: 'thinking' }).dots).toBe(1);
+    expect(computePose({ ...base, state: 'thinking' }).marks).toHaveLength(1);
     expect(computePose({ ...base, state: 'thinking' }).limbs).toEqual(limbsAtRest());
   });
 
   it('acts states out with its limbs and keeps its body', () => {
     const base = { seed: 7, time: 3, reducedMotion: false, rigged: true } as const;
     const thinking = computePose({ ...base, state: 'thinking' });
-    expect(thinking.dots).toBe(0);
+    expect(thinking.marks).toEqual([]);
     expect(thinking.limbs.armLs).toBeGreaterThan(30);
-    expect(computePose({ ...base, state: 'blocked' }).bang).toBe(0);
+    expect(computePose({ ...base, state: 'blocked' }).marks).toEqual([]);
     expect(computePose({ ...base, state: 'waiting' }).limbs.foreL).toBeLessThan(-60);
   });
 

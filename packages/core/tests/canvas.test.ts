@@ -1,12 +1,18 @@
 // @vitest-environment jsdom
-import { afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { mountAvatar } from '../src/dom/mount.ts';
 import { examples } from '../src/examples.ts';
-import { avatarExtent } from '../src/render.ts';
+import { mountCanvas, paintCanvas } from '../src/dom/paint.ts';
+import { glass as glassMaterial } from '../src/dom/materials/glass.ts';
+import * as glass from '../src/dom/glass/renderer.ts';
+import type { CanvasMaterial } from '../src/dom/materials/material.ts';
+import { fluffy as fluffyMaterial } from '../src/dom/materials/fluffy.ts';
+import * as fluffy from '../src/dom/fluffy/renderer.ts';
+import { avatarExtent, liveFrame } from '../src/render.ts';
 
 /** jsdom has no canvas: a 2D context that records what is painted, with the style in effect. */
 interface Recorder {
-  calls: { op: string; fill: string; stroke: string }[];
+  calls: { op: string; fill: string; stroke: string; args: unknown[] }[];
 }
 let withRoundRect = true;
 const recorders = new WeakMap<HTMLCanvasElement, Recorder>();
@@ -19,10 +25,10 @@ beforeAll(() => {
     const rec: Recorder = { calls: [] };
     recorders.set(this, rec);
     const ctx: Record<string, unknown> = { fillStyle: '#000', strokeStyle: '#000', lineWidth: 1, lineCap: 'butt' };
-    for (const op of ['setTransform', 'clearRect', 'fill', 'stroke', 'beginPath', 'moveTo', 'arcTo', 'closePath', 'ellipse']) {
-      ctx[op] = () => rec.calls.push({ op, fill: String(ctx.fillStyle), stroke: String(ctx.strokeStyle) });
+    for (const op of ['setTransform', 'clearRect', 'drawImage', 'fill', 'stroke', 'beginPath', 'moveTo', 'arcTo', 'closePath', 'ellipse']) {
+      ctx[op] = (...args: unknown[]) => rec.calls.push({ op, fill: String(ctx.fillStyle), stroke: String(ctx.strokeStyle), args });
     }
-    if (withRoundRect) ctx.roundRect = () => rec.calls.push({ op: 'roundRect', fill: String(ctx.fillStyle), stroke: String(ctx.strokeStyle) });
+    if (withRoundRect) ctx.roundRect = () => rec.calls.push({ op: 'roundRect', fill: String(ctx.fillStyle), stroke: String(ctx.strokeStyle), args: [] });
     return ctx as unknown as CanvasRenderingContext2D;
   } as unknown as typeof HTMLCanvasElement.prototype.getContext;
 });
@@ -95,6 +101,130 @@ describe('mountAvatar on a canvas', () => {
     expect(el.innerHTML).toBe('');
   });
 
+  it('paints a fluffy still once, and again when its color or material changes', async () => {
+    const tile = document.createElement('canvas');
+    const render = vi.spyOn(fluffy, 'renderFluffy').mockReturnValue({ canvas: tile, x: 0, y: 0, size: 64, cx: 50, cy: 50, radius: 24 });
+    const el = host();
+    const avatar = mountAvatar(el, { definition: examples[0], material: fluffyMaterial, still: true, color: '#1f7cf2', eyeColor: '#151515' });
+    try {
+      await frame();
+      expect(painted(el).filter(call => call.op === 'drawImage')).toHaveLength(1);
+      await frame();
+      expect(render).toHaveBeenCalledTimes(1);
+      avatar.update({ color: '#ec4899' });
+      await frame();
+      expect(render.mock.lastCall?.[2].color).toBe('#ec4899');
+      avatar.update({ material: 'flat' });
+      await frame();
+      expect(el.querySelector('svg')).not.toBeNull();
+      avatar.update({ material: fluffyMaterial });
+      await frame();
+      expect(el.querySelector('canvas')).not.toBeNull();
+    } finally {
+      avatar.destroy();
+      render.mockRestore();
+    }
+  });
+
+  it('switches imported materials on a still and preserves the flat fallback', async () => {
+    const tile = document.createElement('canvas');
+    const image = { canvas: tile, x: 0, y: 0, size: 64, cx: 50, cy: 50, radius: 24 };
+    const renderGlass = vi.spyOn(glass, 'renderGlass').mockReturnValue(image);
+    const renderFluffy = vi.spyOn(fluffy, 'renderFluffy').mockReturnValue(image);
+    const el = host();
+    const avatar = mountAvatar(el, { definition: examples[0], material: glassMaterial, still: true });
+    try {
+      await frame();
+      expect(renderGlass).toHaveBeenCalledTimes(1);
+      expect(renderFluffy).not.toHaveBeenCalled();
+      await frame();
+      expect(renderGlass).toHaveBeenCalledTimes(1);
+      avatar.update({ material: fluffyMaterial });
+      await frame();
+      expect(renderFluffy).toHaveBeenCalledTimes(1);
+      renderGlass.mockReturnValue(null);
+      avatar.update({ material: glassMaterial });
+      await frame();
+      expect(painted(el).some((call) => call.op === 'fill')).toBe(true);
+      avatar.update({ renderer: 'scene' });
+      await frame();
+      expect(el.querySelector('svg')).not.toBeNull();
+      expect(el.querySelector('canvas')).toBeNull();
+    } finally {
+      avatar.destroy();
+      renderGlass.mockRestore();
+      renderFluffy.mockRestore();
+    }
+  });
+
+  it('accepts a caller-supplied material: one render function draws the body and the marks', () => {
+    const tile = document.createElement('canvas');
+    const render = vi.fn().mockReturnValue({ canvas: tile, x: 0, y: 0, size: 64, cx: 50, cy: 50, radius: 24 });
+    const material: CanvasMaterial = { id: 'custom', render };
+    const el = host();
+    const surface = mountCanvas(el, 'custom', examples[0], 6);
+    paintCanvas(surface, liveFrame(examples[0], { size: 96 }), 96, '#123456', '#151515', material);
+    expect(render).toHaveBeenCalledTimes(1);
+    expect('parts' in render.mock.lastCall?.[0]).toBe(true);
+    expect(render.mock.lastCall?.[2]).toMatchObject({ color: '#123456', ink: '#151515' });
+    expect(painted(el).some((call) => call.op === 'drawImage')).toBe(true);
+    // The three dots are one ball, asked for once, without eyes, and drawn three times.
+    paintCanvas(surface, liveFrame(examples[0], { state: 'thinking', size: 96 }), 96, '#123456', '#151515', material);
+    expect(render).toHaveBeenCalledTimes(2);
+    expect('radius' in render.mock.lastCall?.[0]).toBe(true);
+    expect(render.mock.lastCall?.[2]).toEqual({ color: '#123456', ink: '#123456', eyes: [] });
+    // The body's image from the first paint, then the ball three times.
+    expect(painted(el).filter((call) => call.op === 'drawImage')).toHaveLength(4);
+    expect(painted(el).filter((call) => call.op === 'fill')).toHaveLength(0);
+    el.remove();
+  });
+
+  it('fills the marks plainly where a material draws none, and draws a host\'s own outline as a volume', () => {
+    const tile = document.createElement('canvas');
+    const image = { canvas: tile, x: 0, y: 0, size: 64, cx: 50, cy: 50, radius: 24 };
+    const el = host();
+    const surface = mountCanvas(el, 'custom', examples[0], 6);
+    const none: CanvasMaterial = { id: 'none', render: () => null };
+    paintCanvas(surface, liveFrame(examples[0], { state: 'thinking', size: 96 }), 96, '#123456', '#151515', none);
+    expect(painted(el).filter((call) => call.op === 'fill')).toHaveLength(3);
+    // A part that is not a ball or a capsule reaches the material as a volume in its own shape.
+    const render = vi.fn().mockReturnValue(image);
+    const square = { id: 'square', parts: () => [{ shape: 'square', d: 'M-9 -9H9V9H-9Z', box: { x: -9, y: -9, w: 18, h: 18 }, x: 0, y: 0, turn: 0, scale: 1 }] };
+    const state = { id: 'square', pose: () => ({ marks: [{ mark: square, weight: 1 }] }) };
+    paintCanvas(surface, liveFrame(examples[0], { state, size: 96 }), 96, '#123456', '#151515', { id: 'custom', render });
+    expect(render).toHaveBeenCalledTimes(1);
+    const shape = render.mock.lastCall?.[0];
+    expect('parts' in shape && shape.parts.length).toBe(1);
+    expect(painted(el).filter((call) => call.op === 'drawImage')).toHaveLength(1);
+    el.remove();
+  });
+
+  it('draws flat and warns once for a material given by name', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const el = host();
+    // What a host wrote before materials were values, and what an untyped caller may still pass.
+    const avatar = mountAvatar(el, { definition: examples[0], material: 'fluffy' as never, still: true });
+    try {
+      await frame();
+      expect(el.querySelector('svg')).not.toBeNull();
+      expect(el.querySelector('canvas')).toBeNull();
+      avatar.update({ still: false });
+      await frame();
+      await frame();
+      expect(painted(el).some((call) => call.op === 'fill')).toBe(true);
+      expect(painted(el).some((call) => call.op === 'drawImage')).toBe(false);
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls[0][0]).toContain('Import { fluffy } from "open-bot-avatar/materials/fluffy"');
+      avatar.update({ material: 'flat' });
+      avatar.update({ material: undefined });
+      await frame();
+      expect(warn).toHaveBeenCalledTimes(1);
+    } finally {
+      avatar.destroy();
+      warn.mockRestore();
+    }
+  });
+
   it('takes any CSS color, like the scene', async () => {
     const el = host();
     const avatar = mountAvatar(el, { definition: examples[3], color: 'rgb(0 128 255)', eyeColor: 'red', reducedMotion: true });
@@ -104,6 +234,25 @@ describe('mountAvatar on a canvas', () => {
     expect(calls.find((c) => c.op === 'fill')?.fill).not.toBe('#ff6a1a');
     expect(calls.find((c) => c.op === 'roundRect')?.fill).toBe('red');
     avatar.destroy();
+  });
+
+  it('paints fluffy marks from one sprite through a hop, and fills them where fluffy is unavailable', () => {
+    const tile = document.createElement('canvas');
+    const render = vi.spyOn(fluffy, 'renderFluffy').mockReturnValue({ canvas: tile, x: 0, y: 0, size: 64, cx: 0, cy: 0, radius: 24 });
+    try {
+      const def = examples[0], el = host();
+      const surface = mountCanvas(el, 'marks', def, 6);
+      const markFrame = (state: 'thinking' | 'blocked', time: number) => liveFrame(def, { state, time, size: 96 });
+      for (const time of [0, .2]) paintCanvas(surface, markFrame('thinking', time), 96, '#589df2', '#151515', fluffyMaterial);
+      expect(render).toHaveBeenCalledTimes(1);
+      expect(painted(el).filter(call => call.op === 'drawImage')).toHaveLength(6);
+
+      render.mockReturnValue(null);
+      paintCanvas(surface, markFrame('blocked', 0), 96, '#7757f2', '#151515', fluffyMaterial);
+      expect(painted(el).filter(call => call.op === 'fill')).toHaveLength(2);
+    } finally {
+      render.mockRestore();
+    }
   });
 
   it('draws oval eyes without roundRect, and their shadow and lights either way', async () => {
@@ -120,5 +269,59 @@ describe('mountAvatar on a canvas', () => {
     withRoundRect = false;
     // And the eye itself, where there is no roundRect to draw it.
     expect(await ovals()).toBe(10);
+  });
+});
+
+describe('a mark of the host\'s own on a canvas', () => {
+  afterEach(() => {
+    document.body.innerHTML = '';
+  });
+  const square = (d: string, extra: object = {}) => ({ shape: 'q', d, box: { x: -9, y: -9, w: 18, h: 18 }, x: 0, y: 0, turn: 0, scale: 1, ...extra });
+  const showing = (...parts: ReturnType<typeof square>[]) => ({ id: 'custom', pose: () => ({ marks: [{ mark: { id: 'custom', parts: () => parts }, weight: 1 }] }) });
+  const fills = (el: HTMLElement) => painted(el).filter((c) => c.op === 'fill').map((c) => (c.args[0] as { d: string }).d);
+
+  it('is filled with the outline it has now, when the outline under a name changes', () => {
+    const el = host();
+    const surface = mountCanvas(el, 'custom', examples[0], 6);
+    paintCanvas(surface, liveFrame(examples[0], { state: showing(square('M-9 -9H9V9H-9Z')), size: 96 }), 96);
+    expect(fills(el)).toEqual(['M-9 -9H9V9H-9Z']);
+    paintCanvas(surface, liveFrame(examples[0], { state: showing(square('M-5 -9H5V9H-5Z')), size: 96 }), 96);
+    expect(fills(el)).toEqual(['M-9 -9H9V9H-9Z', 'M-5 -9H5V9H-5Z']);
+    // Two outlines under one name in one frame are both drawn.
+    paintCanvas(surface, liveFrame(examples[0], { state: showing(square('M-9 -9H9V9H-9Z'), square('M-2 -2H2V2H-2Z')), size: 96 }), 96);
+    expect(fills(el).slice(2)).toEqual(['M-9 -9H9V9H-9Z', 'M-2 -2H2V2H-2Z']);
+  });
+
+  it('is drawn in fluffy as a ball where it says it is round and in its own shape where not, and filled where fluffy is unavailable', () => {
+    const tile = document.createElement('canvas');
+    const render = vi.spyOn(fluffy, 'renderFluffy').mockReturnValue({ canvas: tile, x: 0, y: 0, size: 64, cx: 50, cy: 50, radius: 30 });
+    try {
+      const el = host();
+      const surface = mountCanvas(el, 'custom', examples[0], 6);
+      const draws = () => painted(el).filter((c) => c.op === 'drawImage');
+      // Not round: a volume built from the outline, drawn about the outline's own centre.
+      paintCanvas(surface, liveFrame(examples[0], { state: showing(square('M-9 -9H9V9H-9Z')), size: 96 }), 96, '#589df2', '#151515', fluffyMaterial);
+      expect(render).toHaveBeenCalledTimes(1);
+      expect('parts' in render.mock.lastCall![0]).toBe(true);
+      expect(render.mock.lastCall![2]).toEqual({ color: '#589df2', ink: '#589df2', eyes: [] });
+      const [, x, y, w, h] = draws()[0].args as number[];
+      expect(w).toBeCloseTo(h);
+      expect(x + w / 2).toBeCloseTo(0);
+      expect(y + h / 2).toBeCloseTo(0);
+      // The square is 18 across; the image reaches 30 model units to each side of a model up to 84 across.
+      expect(w).toBeGreaterThan(18 * (60 / 84) - 0.01);
+      expect(fills(el)).toEqual([]);
+      // Round: the ready capsule (in a color no other test has a sprite of).
+      paintCanvas(surface, liveFrame(examples[0], { state: showing({ ...square('M9 0A9 9 0 1 1 -9 0A9 9 0 1 1 9 0Z', { round: true }), shape: 'ball' }), size: 96 }), 96, '#0a0b0c', '#151515', fluffyMaterial);
+      expect(render).toHaveBeenCalledTimes(2);
+      expect('radius' in render.mock.lastCall![0]).toBe(true);
+      expect(draws()).toHaveLength(2);
+      // Unavailable: the outline is filled.
+      render.mockReturnValue(null);
+      paintCanvas(surface, liveFrame(examples[0], { state: showing(square('M-7 -9H7V9H-7Z')), size: 96 }), 96, '#123456', '#151515', fluffyMaterial);
+      expect(fills(el)).toEqual(['M-7 -9H7V9H-7Z']);
+    } finally {
+      render.mockRestore();
+    }
   });
 });

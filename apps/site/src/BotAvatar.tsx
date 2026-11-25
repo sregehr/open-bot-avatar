@@ -1,7 +1,14 @@
+import { fluffy } from 'open-bot-avatar/materials/fluffy';
+import { glass } from 'open-bot-avatar/materials/glass';
+import type { MaterialName } from './studio/look';
+
 import { useEffect, useRef, type CSSProperties } from 'react';
 import { mountAvatar, type AvatarOptions, type MountedAvatar } from 'open-bot-avatar/dom';
 
-export interface BotAvatarProps extends AvatarOptions {
+const materials = { flat: 'flat', fluffy, glass } as const;
+
+export interface BotAvatarProps extends Omit<AvatarOptions, 'material'> {
+  material?: MaterialName;
   /** Width and height (the avatar is square): a number of pixels or any CSS length. Omit to fill the width. */
   size?: number | string;
   className?: string;
@@ -11,7 +18,7 @@ export interface BotAvatarProps extends AvatarOptions {
 /**
  * The site's React wrapper around mountAvatar: a live avatar (painted to a canvas; it idles, blinks,
  * changes state and mood smoothly and, with `followPointer`, looks toward the cursor), or with `still` a
- * single static SVG.
+ * single static image.
  */
 export function BotAvatar({ size, className, style, ...options }: BotAvatarProps) {
   const host = useRef<HTMLDivElement>(null);
@@ -21,7 +28,7 @@ export function BotAvatar({ size, className, style, ...options }: BotAvatarProps
 
   useEffect(() => {
     if (!host.current) return;
-    const mounted = mountAvatar(host.current, latest.current);
+    const mounted = mountAvatar(host.current, { ...latest.current, material: materials[latest.current.material ?? 'flat'] });
     avatar.current = mounted;
     return () => {
       mounted.destroy();
@@ -29,10 +36,10 @@ export function BotAvatar({ size, className, style, ...options }: BotAvatarProps
     };
   }, []);
 
-  const { definition, color, eyeColor, depth, shading, grain, shadow, state, mood, followPointer, lookAt, holdGaze, view, reducedMotion, still, label } = options;
+  const { definition, material, color, eyeColor, depth, shading, grain, shadow, state, mood, followPointer, lookAt, holdGaze, view, reducedMotion, still, label } = options;
   useEffect(() => {
-    avatar.current?.update(latest.current);
-  }, [definition, color, eyeColor, depth, shading, grain, shadow, state, mood, followPointer, lookAt, holdGaze, view, reducedMotion, still, label]);
+    avatar.current?.update({ ...latest.current, material: materials[latest.current.material ?? 'flat'] });
+  }, [definition, material, color, eyeColor, depth, shading, grain, shadow, state, mood, followPointer, lookAt, holdGaze, view, reducedMotion, still, label]);
 
   return (
     <div
