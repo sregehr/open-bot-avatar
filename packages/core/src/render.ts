@@ -298,8 +298,45 @@ function limbStack(vol: Volume, v: ViewBasis, stack: 'z' | 'x', part: number, g:
   return facing[stack] >= facing[best] - STACK_KEEP ? stack : best;
 }
 
+/**
+ * The shoes of a rigged body, by part index, each with its side: of the parts a shin's joint
+ * carries, the lowest. A shoe can turn on the ball of its foot on its own (see Limbs.footL).
+ */
+function shoes(def: AvatarDefinition, vol: Volume): Map<number, 'l' | 'r'> {
+  const found = new Map<number, 'l' | 'r'>();
+  for (const side of ['l', 'r'] as const) {
+    const parts = (def.rig ?? []).filter((j) => j.role === `shin-${side}`).map((j) => j.part);
+    if (parts.length < 2) continue;
+    found.set(parts.reduce((low, i) => (vol.parts[i].bounds.maxY > vol.parts[low].bounds.maxY ? i : low)), side);
+  }
+  return found;
+}
+
+/**
+ * The move each rigged part is ordered by, front to back. A shoe goes by its shin's: tipped on the
+ * ball of its foot it would otherwise jump in front of the shin it hangs from, or behind it, part
+ * way through a tap.
+ */
+function orderMoves(def: AvatarDefinition, vol: Volume, moves: Map<number, Rigid>): Map<number, Rigid> {
+  const order = new Map(moves);
+  for (const [part, side] of shoes(def, vol)) {
+    const shin = (def.rig ?? []).find((j) => j.role === `shin-${side}` && j.part !== part);
+    const g = shin && moves.get(shin.part);
+    if (g) order.set(part, g);
+  }
+  return order;
+}
+
+/** A heel lifted `degrees`: a turn about the ball of the foot, toward the front of the shoe where it meets the ground. */
+function heelLift(part: Volume['parts'][number], degrees: number): Rigid {
+  const b = (-degrees * Math.PI) / 180, cb = Math.cos(b), sb = Math.sin(b);
+  const r = [1, 0, 0, 0, cb, -sb, 0, sb, cb];
+  const py = part.bounds.maxY, pz = part.depth / 4;
+  return { r, t: [0, py - (cb * py - sb * pz), pz - (sb * py + cb * pz)] };
+}
+
 /** Where each rigged part is moved to in this pose, by part index; parts without a joint are absent. */
-function rigMoves(def: AvatarDefinition, pose: Limbs, reach?: { l?: ArmReach; r?: ArmReach }): Map<number, Rigid> {
+function rigMoves(def: AvatarDefinition, vol: Volume, pose: Limbs, reach?: { l?: ArmReach; r?: ArmReach }): Map<number, Rigid> {
   // An arm held out in front of the body is clear of the head by where it is, not by how it is turned.
   const [armL, foreL] = pose.armLz > 3 ? [pose.armL, pose.foreL] : withinReach(reach?.l, pose.armL, pose.foreL);
   const [armR, foreR] = pose.armRz > 3 ? [pose.armR, pose.foreR] : withinReach(reach?.r, pose.armR, pose.foreR);
@@ -323,6 +360,11 @@ function rigMoves(def: AvatarDefinition, pose: Limbs, reach?: { l?: ArmReach; r?
     const lift = j.role.endsWith('arm-l') ? limbs.armLz : j.role.endsWith('arm-r') ? limbs.armRz : 0;
     if (lift) g = { r: g.r, t: [g.t[0], g.t[1], g.t[2] + lift] };
     moves.set(j.part, g);
+  }
+  // A shoe turns on the ball of its foot first, then goes where its leg takes it.
+  for (const [part, side] of shoes(def, vol)) {
+    const heel = side === 'l' ? limbs.footL : limbs.footR;
+    if (heel) moves.set(part, after(moves.get(part) as Rigid, heelLift(vol.parts[part], heel)));
   }
   return moves;
 }
@@ -1055,8 +1097,10 @@ const PIECE_CLEAR = 0.75;
  * be ordered slice by slice as the flat body is: a piece its joint has brought forward (a hand to
  * the chin) or back goes by how far, and the rest in a fixed order.
  */
-function surfacePieces(def: AvatarDefinition, vol: Volume, v: ViewBasis, pivot: Point, moves: Map<number, Rigid>): SurfacePiece[] {
-  const roles = new Map((def.rig ?? []).map((j) => [j.part, j.role as string]));
+function surfacePieces(def: AvatarDefinition, vol: Volume, v: ViewBasis, pivot: Point, moves: Map<number, Rigid>, ordered: Map<number, Rigid>): SurfacePiece[] {
+  const feet = shoes(def, vol);
+  // A shoe is a piece of its own: it may turn while its shin does not.
+  const roles = new Map((def.rig ?? []).map((j) => [j.part, feet.has(j.part) ? `${j.role}:shoe` : (j.role as string)]));
   const groups = new Map<string, number[]>();
   vol.parts.forEach((_, i) => {
     const role = roles.get(i) ?? 'trunk';
@@ -1072,7 +1116,9 @@ function surfacePieces(def: AvatarDefinition, vol: Volume, v: ViewBasis, pivot: 
       const cy = (Math.min(...b.map((q) => q.minY)) + Math.max(...b.map((q) => q.maxY))) / 2;
       const mid: Vec3 = g ? moved(g, [cx, cy, 0]) : [cx, cy, 0];
       const [x, y] = projectPoint(v, mid, pivot);
-      const depth = Math.abs(mid[2]) < PIECE_CLEAR ? 0 : v.facing * mid[2];
+      const k = ordered.get(parts[0]);
+      const z = k ? moved(k, [cx, cy, 0])[2] : 0;
+      const depth = Math.abs(z) < PIECE_CLEAR ? 0 : v.facing * z;
       // The piece's own turn, then the view: again a view (a yaw and a pitch), turned on screen.
       const t = new Array<number>(9);
       for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) t[i * 3 + j] = g ? view[i * 3] * g.r[j] + view[i * 3 + 1] * g.r[3 + j] + view[i * 3 + 2] * g.r[6 + j] : view[i * 3 + j];
@@ -1104,8 +1150,9 @@ function flatFrame(definition: AvatarDefinition, options: RenderOptions, size: n
   // Only the cross-sections this view draws are listed; ids are stable across frames.
   const paths = new Map<string, FramePath>();
   const items: { depth: number; part?: number; at?: number; axis?: 'x' | 'y' | 'z'; shape: FrameShape }[] = [];
-  const moves = p.def.rig?.length ? rigMoves(p.def, pose.limbs, p.reach()) : null;
+  const moves = p.def.rig?.length ? rigMoves(p.def, vol, pose.limbs, p.reach()) : null;
   const keys = moves ? limbKeys(p.def) : undefined;
+  const ordered = moves ? orderMoves(p.def, vol, moves) : null;
   if (fx.body > 0) {
     drawnSlices(p, v, size, (s, plain, i, j) => {
       const g = moves?.get(i);
@@ -1122,7 +1169,8 @@ function flatFrame(definition: AvatarDefinition, options: RenderOptions, size: n
       if (moves) {
         const [rx, ry] = i === vol.eyePart ? eyesMid : (keys?.get(i) ?? vol.parts[i].center);
         const key3: Vec3 = s.axis === 'z' ? [rx, ry, s.at] : s.axis === 'x' ? [s.at, ry, 0] : [rx, s.at, 0];
-        depth = projectPoint(v, g ? moved(g, key3) : key3, pivot)[2];
+        const k = ordered?.get(i);
+        depth = projectPoint(v, k ? moved(k, key3) : key3, pivot)[2];
       } else depth = s.axis === 'z' ? v.facing * s.at : -v.sY * v.cP * s.at;
       items.push({ depth, part: i, at: s.at, axis: s.axis, shape: { kind: 'slice', key: `${i}${s.axis}${j}`, path: path.id, matrix: shrink(m) } });
     }, moves ? (i) => moves.has(i) : undefined, moves ? (i) => limbStack(vol, v, stack, i, moves.get(i)) : undefined);
@@ -1175,7 +1223,7 @@ function flatFrame(definition: AvatarDefinition, options: RenderOptions, size: n
   const frame: AvatarFrame = {
     name: p.def.name, color, ink, paths: [...paths.values()], root,
     shapes: [...ribbon(false), ...items.map((it) => it.shape), ...ribbon(true), ...marks],
-    surface: { view: v, scale: fx.body, eyes, ...(moves && fx.body > 0 ? { pieces: surfacePieces(p.def, vol, v, pivot, moves) } : {}) },
+    surface: { view: v, scale: fx.body, eyes, ...(moves && fx.body > 0 ? { pieces: surfacePieces(p.def, vol, v, pivot, moves, ordered ?? moves) } : {}) },
   };
   const amount = clamp(Number.isFinite(options.shading) ? (options.shading as number) : 0, 0, 1);
   if (amount > 0 && fx.body > 0) {

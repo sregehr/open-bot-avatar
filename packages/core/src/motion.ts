@@ -62,6 +62,7 @@ export interface Pose {
  * viewer. Forearms bend on from the arm (negative folds the hand in toward the body); shins swing
  * on from the leg (negative is a knee bent back). `head` tilts, positive clockwise. `arm…z` holds
  * a whole arm out in front of the body, in viewBox units, so a hand can come round to the chest or the chin.
+ * `foot…` lifts the heel of a shoe, which turns on the ball of the foot while the leg above it stays where it is.
  */
 export interface Limbs {
   head: number;
@@ -81,13 +82,15 @@ export interface Limbs {
   legRs: number;
   shinL: number;
   shinR: number;
+  footL: number;
+  footR: number;
 }
 
-const LIMB_KEYS = ['head', 'armL', 'armR', 'armLs', 'armRs', 'foreL', 'foreR', 'foreLs', 'foreRs', 'armLz', 'armRz', 'legL', 'legR', 'legLs', 'legRs', 'shinL', 'shinR'] as const;
+const LIMB_KEYS = ['head', 'armL', 'armR', 'armLs', 'armRs', 'foreL', 'foreR', 'foreLs', 'foreRs', 'armLz', 'armRz', 'legL', 'legR', 'legLs', 'legRs', 'shinL', 'shinR', 'footL', 'footR'] as const;
 
 /** Limbs as drawn. */
 export function limbsAtRest(): Limbs {
-  return { head: 0, armL: 0, armR: 0, armLs: 0, armRs: 0, foreL: 0, foreR: 0, foreLs: 0, foreRs: 0, armLz: 0, armRz: 0, legL: 0, legR: 0, legLs: 0, legRs: 0, shinL: 0, shinR: 0 };
+  return { head: 0, armL: 0, armR: 0, armLs: 0, armRs: 0, foreL: 0, foreR: 0, foreLs: 0, foreRs: 0, armLz: 0, armRz: 0, legL: 0, legR: 0, legLs: 0, legRs: 0, shinL: 0, shinR: 0, footL: 0, footR: 0 };
 }
 
 export const STATES: readonly AvatarState[] = ['idle', 'thinking', 'working', 'waiting', 'blocked', 'done'];
@@ -381,12 +384,12 @@ function actOut(L: Limbs, c: { state: string; mood: AvatarMood; seed: number; t:
     L.armR = 36;
     L.foreR = -100;
     L.head = 1.2 * wave(4.1);
-    // Its weight on one leg, straight under it; the other set out to the side, that foot tapping.
+    // Its weight on one leg, straight under it; the other set out to the side and planted too,
+    // only its foot tapping: the heel lifts a little and comes down.
     const foot = reducedMotion ? 0 : Math.max(0, Math.sin((TAU * t) / 0.78)) ** 2;
     L.legL = 0;
     L.legR = 7;
-    L.legRs = 8 + 9 * foot;
-    L.shinR = -3 - 10 * foot;
+    L.footR = 13 * foot;
   } else if (state === 'working') {
     // Elbows out and hands busy, pumping one after the other, with a nod to the beat. The swing
     // toward the viewer stays small: a part turned far out of the plane shows its cross-sections.
@@ -409,9 +412,9 @@ function actOut(L: Limbs, c: { state: string; mood: AvatarMood; seed: number; t:
     L.armL = L.armR = 36 - 6 * sigh;
     L.foreL = L.foreR = -98 + 5 * sigh;
     L.head = 3 + 1.5 * wave(6.4, 2);
+    // The leg stays planted and only its foot taps, as when it thinks: the heel lifts a little and comes down.
     L.legR = 6;
-    L.legRs = 8 + 9 * tap;
-    L.shinR = -10 * tap;
+    L.footR = 13 * tap;
   } else if (state === 'blocked') {
     // A shrug: elbows in, palms up and out, head tipped.
     L.armL = L.armR = 30 + 2.5 * wave(2.6);

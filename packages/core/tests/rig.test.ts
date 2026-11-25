@@ -111,4 +111,28 @@ describe('rig', () => {
     const waving = avatarFrame(scout, { state: 'done', stateAge: 1.5, time: 1.5 }).surface.pieces ?? [];
     expect(waving.some((piece) => Math.abs(piece.roll) > 1)).toBe(true);
   });
+
+  it('taps a foot while it thinks: the heel lifts a little and the leg stays planted', () => {
+    const base = { seed: 7, reducedMotion: false, rigged: true, state: 'thinking' } as const;
+    const poses = Array.from({ length: 40 }, (_, i) => computePose({ ...base, time: i * 0.05 }).limbs);
+    expect(Math.max(...poses.map((limbs) => limbs.footR))).toBeGreaterThan(8);
+    expect(Math.min(...poses.map((limbs) => limbs.footR))).toBe(0);
+    for (const limbs of poses) {
+      expect(limbs.legRs).toBe(0);
+      expect(limbs.shinR).toBe(0);
+      expect(limbs.footL).toBe(0);
+    }
+    // The shoe keeps its place in the order the leg is painted in all the way through a tap: no flash as it tips.
+    // The right leg's parts: its thigh, shin and shoe.
+    const leg = new RegExp(`^(${(scout.rig ?? []).filter((j) => j.role === 'leg-r' || j.role === 'shin-r').map((j) => j.part).join('|')})[xyz]`);
+    const order = (time: number) => avatarFrame(scout, { state: 'thinking', time }).shapes.flatMap((shape) => (shape.kind === 'slice' && leg.test(shape.key) ? [shape.key] : [])).join(' ');
+    const orders = new Set(Array.from({ length: 60 }, (_, i) => order((i * 0.78) / 60)));
+    expect(orders.size).toBe(1);
+    // Waiting taps the same way.
+    const waiting = Array.from({ length: 40 }, (_, i) => computePose({ ...base, state: 'waiting', time: i * 0.05 }).limbs);
+    expect(Math.max(...waiting.map((limbs) => limbs.footR))).toBeGreaterThan(8);
+    for (const limbs of waiting) expect([limbs.legRs, limbs.shinR]).toEqual([0, 0]);
+    // Under reduced motion the foot is down.
+    expect(computePose({ ...base, time: 1, reducedMotion: true }).limbs.footR).toBe(0);
+  });
 });
