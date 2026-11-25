@@ -123,7 +123,8 @@ docs/            definition contract
 
 ```sh
 pnpm install
-pnpm dev          # the site, with the package from source
+pnpm dev          # the editor (localhost:5173/docebo-agent-avatars/) and the embed demo (localhost:5180), from source
+pnpm dev:site     # the editor alone; pnpm dev:embed for the demo alone
 pnpm test         # Vitest: engine, DOM mount, editor and gallery checks
 pnpm typecheck
 pnpm build        # the package to dist/, the site to apps/site/dist/

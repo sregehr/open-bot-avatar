@@ -4,6 +4,8 @@ import { defineConfig } from 'vite';
 // page needs nothing else. `vite` alone serves the demo host page (index.html) from source.
 export default defineConfig({
   resolve: { conditions: ['open-bot-avatar/source'] },
+  // A fixed port: `pnpm dev` at the root runs this beside the editor (5173), and each links to the other.
+  server: { port: 5180, strictPort: true },
   build: {
     lib: {
       entry: 'src/index.ts',

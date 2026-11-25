@@ -413,7 +413,7 @@ function build() {
       <div class="pick-pop" role="dialog" aria-label="Choose an avatar" hidden><p><b data-active-name></b> wears this avatar on every page.</p><docebo-avatar-picker></docebo-avatar-picker></div></div>
     <div class="ctl"><span>State</span>${seg('state', STATES.map((s) => [s, LABEL[s]]))}</div>
     <div class="ctl"><span>Options</span><div class="checks">${[['follow', 'Follow pointer'], ['flat', 'Flat'], ['happy', 'Happy']].map(([k, l]) => `<label><input type="checkbox" data-opt="${k}"${S[k] ? ' checked' : ''} />${l}</label>`).join('')}</div></div>
-    <div class="go"><button class="btn primary" data-act="run">Run a task</button><button class="btn" data-act="code">Embed code</button><a class="btn" id="editor" href="http://localhost:5173/open-bot-avatar/">Avatar editor</a></div>
+    <div class="go"><button class="btn primary" data-act="run">Run a task</button><button class="btn" data-act="code">Embed code</button><a class="btn" id="editor" href="http://localhost:5173/docebo-agent-avatars/">Avatar editor</a></div>
     <pre class="code" id="code" hidden></pre>`;
   // The editor (apps/site) is served elsewhere: its dev server, unless VITE_EDITOR_URL names another place.
   if (import.meta.env.VITE_EDITOR_URL) $('#editor').href = import.meta.env.VITE_EDITOR_URL;

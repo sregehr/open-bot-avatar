@@ -27,7 +27,7 @@ thinking to done, and "Embed code" prints the markup for the current choice. The
 `index.html` and `demo/`; it is not part of the bundle.
 
 The demo page and the editor (`apps/site`) link to each other. Each assumes the other's dev server
-(`localhost:5180` and `localhost:5173/open-bot-avatar/`); set `VITE_EMBED_URL` for the editor and
+(`localhost:5180` and `localhost:5173/docebo-agent-avatars/`); set `VITE_EMBED_URL` for the editor and
 `VITE_EDITOR_URL` for the demo when they are served somewhere else.
 
 ## `<docebo-agent-avatar>`

@@ -7,7 +7,9 @@
     "node": ">=22.18"
   },
   "scripts": {
-    "dev": "pnpm --filter site dev",
+    "dev": "pnpm --parallel --filter site --filter docebo-agent-avatars dev",
+    "dev:site": "pnpm --filter site dev",
+    "dev:embed": "pnpm --filter docebo-agent-avatars dev",
     "build": "pnpm -r --workspace-concurrency=1 build",
     "typecheck": "pnpm -r --workspace-concurrency=1 typecheck",
     "test": "vitest run",
