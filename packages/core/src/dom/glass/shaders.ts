@@ -21,44 +21,18 @@ void main() {
 export const MAX_PIECES = 12;
 const PIECES = Array.from({ length: MAX_PIECES }, (_, i) => i);
 
-export const fragmentShader = `#version 300 es
-precision highp float;
-precision highp int;
-
-in vec2 vNdc;
-out vec4 result;
-
-uniform highp sampler3D volumeField; // R16F 3D SDF (positive inside, z >= 0 mirrored)
-uniform highp sampler2D eyeField;    // socket.ts signed distance tiles
-uniform vec3 boxMin;                 // (x0, y0, z0) in viewBox units
-uniform vec3 boxSpan;                // (spanX, spanY, spanZ) in viewBox units
-uniform vec2 voxelStep;              // (stepXY, stepZ) for smooth normal gradients
-uniform vec3 pivot;                  // (cx, cy, 0) in viewBox units
-uniform float radius;                // half-size of orthographic render square, viewBox units
-uniform float halfDepth;             // max half depth, viewBox units
-uniform float bottomY;               // bottom of avatar bounds, viewBox units
-uniform float pixelSize;             // viewBox units per pixel
-uniform int isCapsule;               // 1 for state marks (thinking dots / blocked bar)
-uniform vec2 capsuleDims;            // (radius, halfStem) for capsule marks
-uniform mat3 view;                   // yaw-then-pitch rotation matrix (model -> screen, Y-down)
-uniform vec3 color;                  // glass tint color (0..1)
-uniform vec3 ink;                    // eye ink color (0..1)
-uniform vec4 eyeRegion[2];           // face-plane center, square span, max host depth
-// A jointed body: pieceCount fields, each where its joints have turned it (local = pieceTurn * (p - pieceShift)).
+/** The fields of a jointed body's pieces, each where its joints have turned it (local = pieceTurn * (p - pieceShift)). */
+const PIECE_UNIFORMS = `// A jointed body: pieceCount fields, each where its joints have turned it (local = pieceTurn * (p - pieceShift)).
 uniform int pieceCount;              // 0 for one field (volumeField)
 ${PIECES.map((i) => `uniform highp sampler3D pieceField${i};`).join('\n')}
 uniform vec3 pieceMin[${MAX_PIECES}];
 uniform vec3 pieceSpan[${MAX_PIECES}];
 uniform mat3 pieceTurn[${MAX_PIECES}];
 uniform vec3 pieceShift[${MAX_PIECES}];
-uniform int eyePiece;                // the piece that carries the eyes, or -1
-uniform vec2 eyeSize[2];
+`;
 
-const float FAR = ${float(SOCKET_PAD)};
-const float IOR = 1.50;
-const float F0  = 0.04;
-
-// One piece of a jointed body, joined to the distance so far. A piece whose box is further off than that is skipped.
+/** The distance to a jointed body (negative inside): its pieces in a smooth union. */
+const JOIN_PIECES = `// One piece of a jointed body, joined to the distance so far. A piece whose box is further off than that is skipped.
 const float JOIN = 1.1;
 float joinPiece(float d, highp sampler3D field, int i, vec3 p) {
   vec3 q = pieceTurn[i] * (p - pieceShift[i]);
@@ -75,19 +49,73 @@ float joinPiece(float d, highp sampler3D field, int i, vec3 p) {
   return min(d, e) - h * h * JOIN * 0.25;
 }
 
+float joinPieces(vec3 p) {
+  float d = 1000.0;
+${PIECES.map((i) => `  if (pieceCount > ${i}) d = joinPiece(d, pieceField${i}, ${i}, p);`).join('\n')}
+  return d;
+}`;
+
+/**
+ * Fuses a jointed body's pieces into one field, a layer of a 3D texture at a time: what the glass
+ * is then shaded from, as a body in one piece is. Positive inside, as the baked fields are.
+ */
+export const fuseShader = `#version 300 es
+precision highp float;
+precision highp int;
+out vec4 result;
+uniform vec3 boxMin;
+uniform vec3 boxSpan;
+uniform vec3 gridSize;
+uniform float layer;
+${PIECE_UNIFORMS}
+${JOIN_PIECES}
+void main() {
+  // Texel centers lie on the box's faces, as the glass shader reads them.
+  vec3 at = vec3(gl_FragCoord.xy - 0.5, layer) / (gridSize - 1.0);
+  result = vec4(-joinPieces(boxMin + at * boxSpan), 0.0, 0.0, 1.0);
+}`;
+
+export const fragmentShader = `#version 300 es
+precision highp float;
+precision highp int;
+
+in vec2 vNdc;
+out vec4 result;
+
+uniform highp sampler3D volumeField; // R16F 3D SDF (positive inside, z >= 0 mirrored)
+uniform highp sampler2D eyeField;    // socket.ts signed distance tiles
+uniform vec3 boxMin;                 // (x0, y0, z0) in viewBox units
+uniform vec3 boxSpan;                // (spanX, spanY, spanZ) in viewBox units
+uniform vec2 voxelStep;              // (stepXY, stepZ) for smooth normal gradients
+uniform int wholeDepth;              // 1 where volumeField holds the whole depth (a fused jointed body), 0 where z >= 0 is mirrored
+uniform vec3 pivot;                  // (cx, cy, 0) in viewBox units
+uniform float radius;                // half-size of orthographic render square, viewBox units
+uniform float halfDepth;             // max half depth, viewBox units
+uniform float bottomY;               // bottom of avatar bounds, viewBox units
+uniform float pixelSize;             // viewBox units per pixel
+uniform int isCapsule;               // 1 for state marks (thinking dots / blocked bar)
+uniform vec2 capsuleDims;            // (radius, halfStem) for capsule marks
+uniform mat3 view;                   // yaw-then-pitch rotation matrix (model -> screen, Y-down)
+uniform vec3 color;                  // glass tint color (0..1)
+uniform vec3 ink;                    // eye ink color (0..1)
+uniform vec4 eyeRegion[2];           // face-plane center, square span, max host depth
+${PIECE_UNIFORMS}uniform int eyePiece;                // the piece that carries the eyes; -1 for a body in one piece, -2 for a jointed one with no eyes
+uniform vec2 eyeSize[2];
+
+const float FAR = ${float(SOCKET_PAD)};
+const float IOR = 1.50;
+const float F0  = 0.04;
+
+${JOIN_PIECES}
 // Exact 3D Signed Distance (negative inside, positive outside) directly from Volume.parts!
 float mapSDF(vec3 p) {
-  if (pieceCount > 0) {
-    float d = 1000.0;
-${PIECES.map((i) => `    if (pieceCount > ${i}) d = joinPiece(d, pieceField${i}, ${i}, p);`).join('\n')}
-    return d;
-  }
+  if (pieceCount > 0) return joinPieces(p);
   if (isCapsule == 1) {
     vec3 q = p - pivot;
     q.y -= clamp(q.y, -capsuleDims.y, capsuleDims.y);
     return length(q) - capsuleDims.x;
   }
-  vec3 q = vec3(p.x, p.y, abs(p.z));
+  vec3 q = vec3(p.x, p.y, wholeDepth == 1 ? p.z : abs(p.z));
   vec3 boxMax = boxMin + boxSpan;
   vec3 cl = clamp(q, boxMin, boxMax);
   vec3 outVec = q - cl;
@@ -296,11 +324,11 @@ vec4 traceRay(vec2 screenXY, mat3 invView, vec3 jewelTint, vec3 absorbSigma) {
     vec3 local;
     // The eyes are set in their own piece: looked up where it was before its joint turned it.
     vec3 pEye = p1, nEye = n1;
-    if (pieceCount > 0 && eyePiece >= 0) {
+    if (eyePiece >= 0) {
       pEye = pieceTurn[eyePiece] * (p1 - pieceShift[eyePiece]);
       nEye = pieceTurn[eyePiece] * n1;
     }
-    float dEye = pieceCount > 0 && eyePiece < 0 ? FAR : socketDistance(pEye, nEye, eyeUV, local);
+    float dEye = eyePiece == -2 ? FAR : socketDistance(pEye, nEye, eyeUV, local);
     if (dEye < 1.8) {
       float lip = smoothstep(0.95, 0.04, dEye) * smoothstep(-0.06, 0.18, dEye);
       float lowerRight = smoothstep(-0.25, 0.85, local.y * 0.80 + local.x * 0.45);

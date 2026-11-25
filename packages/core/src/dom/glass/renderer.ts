@@ -10,7 +10,7 @@ import type { Volume, VolumePart } from '../../volume.ts';
 import { halfDepth, type Capsule, type MaterialShape } from '../materials/shape.ts';
 import { SOCKET_TILE, exposedHeight, socketKey, socketRegion, socketTile } from '../materials/socket.ts';
 import type { MaterialPiece } from '../materials/material.ts';
-import { MAX_PIECES, fragmentShader, vertexShader } from './shaders.ts';
+import { MAX_PIECES, fragmentShader, fuseShader, vertexShader } from './shaders.ts';
 
 export type GlassShape = MaterialShape;
 
@@ -390,6 +390,21 @@ interface Renderer {
 /** A jointed body's image reaches this much further than the body at rest: an arm held out, a leg kicked. */
 const JOINTED_REACH = 1.3;
 const NO_MOVE = { r: [1, 0, 0, 0, 1, 0, 0, 0, 1], t: [0, 0, 0] };
+/**
+ * The grid a jointed body's pieces are fused into each time it moves, and how far its box reaches
+ * past the body at rest: half again as wide (arms out), a little taller, and this much deeper (a
+ * hand brought forward, a foot back).
+ */
+/** A small avatar's grid is coarser, as a body in one piece's is (see GRID_LO). */
+const FUSE_HI = { xy: 112, z: 56 };
+const FUSE_LO = { xy: 64, z: 32 };
+const FUSE_WIDE = 1.35;
+const FUSE_TALL = 1.12;
+const FUSE_DEEP = 8;
+/** A jointed body none of which has moved this far on screen since its image was drawn, device pixels, reuses the image. */
+const JOINTED_SAME = 0.4;
+/** Its pieces are fused again once one has moved this far, device pixels: half a CSS pixel on most screens. */
+const FUSE_SAME = 1;
 
 function createRenderer(onContextRestored: () => void): Renderer | null {
   const canvas = document.createElement('canvas');
@@ -420,6 +435,7 @@ function createRenderer(onContextRestored: () => void): Renderer | null {
     ink: uniform('ink'),
     eyeRegion: uniform('eyeRegion[0]'),
     eyeSize: uniform('eyeSize[0]'),
+    wholeDepth: uniform('wholeDepth'),
     pieceCount: uniform('pieceCount'),
     pieceMin: uniform('pieceMin[0]'),
     pieceSpan: uniform('pieceSpan[0]'),
@@ -591,6 +607,55 @@ function createRenderer(onContextRestored: () => void): Renderer | null {
   const turns = new Float32Array(9 * MAX_PIECES), shifts = new Float32Array(3 * MAX_PIECES);
   /** What the last jointed image was drawn from: a body that holds still is not drawn again. */
   let jointedKey = '';
+  let jointedView: ViewBasis | null = null;
+  /** The body whose pieces the fused field holds, and where they were when it was made. */
+  let fused: Volume | null = null;
+  const fusedTurns = new Float32Array(9 * MAX_PIECES), fusedShifts = new Float32Array(3 * MAX_PIECES);
+
+  /**
+   * Fusing: the pieces are joined into one field on the GPU, a layer of a 3D texture at a time, and
+   * the glass is shaded from that as a body in one piece is. Joining them in the glass shader
+   * itself costs a sample of every piece at every step of every ray, many times as much. Null where
+   * the browser cannot draw into a float texture: then the glass shader joins them.
+   */
+  let fuser: { program: WebGLProgram; fb: WebGLFramebuffer; textures: Map<number, WebGLTexture>; u: Record<string, WebGLUniformLocation | null> } | null | undefined;
+  const fuserOf = () => {
+    if (fuser !== undefined) return fuser;
+    fuser = null;
+    if (!gl.getExtension('EXT_color_buffer_float') && !gl.getExtension('EXT_color_buffer_half_float')) return fuser;
+    try {
+      const made = link(gl, vertexShader, fuseShader);
+      const textures = new Map<number, WebGLTexture>();
+      gl.activeTexture(gl.TEXTURE0);
+      for (const grid of [FUSE_HI, FUSE_LO]) {
+        const texture = gl.createTexture()!;
+        gl.bindTexture(gl.TEXTURE_3D, texture);
+        gl.texStorage3D(gl.TEXTURE_3D, 1, gl.R16F, grid.xy, grid.xy, grid.z);
+        for (const [name, value] of [[gl.TEXTURE_MIN_FILTER, gl.LINEAR], [gl.TEXTURE_MAG_FILTER, gl.LINEAR], [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_R, gl.CLAMP_TO_EDGE]]) gl.texParameteri(gl.TEXTURE_3D, name, value);
+        textures.set(grid.xy, texture);
+      }
+      const fb = gl.createFramebuffer()!;
+      gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+      gl.framebufferTextureLayer(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, textures.get(FUSE_HI.xy)!, 0, 0);
+      const complete = gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE;
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      if (complete) {
+        gl.useProgram(made);
+        const at = (name: string) => gl.getUniformLocation(made, name);
+        for (let i = 0; i < MAX_PIECES; i++) gl.uniform1i(at(`pieceField${i}`), PIECE_UNIT + i);
+        fuser = {
+          program: made, fb, textures,
+          u: { boxMin: at('boxMin'), boxSpan: at('boxSpan'), gridSize: at('gridSize'), layer: at('layer'), pieceCount: at('pieceCount'), pieceMin: at('pieceMin[0]'), pieceSpan: at('pieceSpan[0]'), pieceTurn: at('pieceTurn[0]'), pieceShift: at('pieceShift[0]') },
+        };
+        gl.useProgram(program);
+      }
+    } catch (error) {
+      console.warn('open-bot-avatar: glass characters are joined the slow way', error);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      gl.useProgram(program);
+    }
+    return fuser;
+  };
 
   /**
    * A rigged character's body as one piece of glass: every piece's field, each where its joints
@@ -619,31 +684,102 @@ function createRenderer(onContextRestored: () => void): Renderer | null {
       if (piece.eyes) eyePiece = i;
     });
     const key = [
-      pixels, look.color, look.ink, view.cY.toFixed(4), view.sY.toFixed(4), view.sP.toFixed(4),
+      pixels, look.color, look.ink,
       ...look.eyes.map(({ mark, dx, dy }) => `${socketKey(mark)}:${dx.toFixed(2)}:${dy.toFixed(2)}`),
-      ...baked.map((piece, i) => `${piece.gridXY}:${Array.from(turns.subarray(9 * i, 9 * i + 9), (n) => n.toFixed(3)).join()}:${Array.from(shifts.subarray(3 * i, 3 * i + 3), (n) => n.toFixed(2)).join()}`),
+      ...baked.map((piece) => piece.gridXY), scale >= 1.4,
     ].join('|');
-    if (key === jointedKey && shown.baked === null) return image;
+    // How far the view has turned since the image was drawn, at the body's edge, and how far any
+    // piece has moved since the pieces were last fused, at the far corner of its box: both in
+    // device pixels. The view sways all the time, so the glass is shaded again most frames; a limb
+    // that drifts as the body breathes moves a small part of a pixel a frame, so the pieces are
+    // fused again only every few.
+    const same = key === jointedKey && fused === body;
+    const turned = same && jointedView
+      ? (Math.abs(view.cY - jointedView.cY) + Math.abs(view.sY - jointedView.sY) + Math.abs(view.sP - jointedView.sP) + Math.abs(view.cP - jointedView.cP)) * radius * scale
+      : Infinity;
+    let moved = same ? 0 : Infinity;
+    for (let i = 0; i < pieces.length && moved < FUSE_SAME; i++) {
+      const lo = baked[i].boxMin, span = baked[i].boxSpan;
+      const c = [lo[0] + span[0] / 2, lo[1] + span[1] / 2, 0];
+      let turn = 0, shift = 0;
+      for (let row = 0; row < 3; row++) {
+        let d = shifts[3 * i + row] - fusedShifts[3 * i + row];
+        for (let col = 0; col < 3; col++) {
+          const dr = turns[9 * i + 3 * row + col] - fusedTurns[9 * i + 3 * row + col];
+          d += dr * c[col];
+          turn += dr * dr;
+        }
+        shift += d * d;
+      }
+      moved = Math.max(moved, (Math.sqrt(shift) + Math.sqrt(turn) * Math.hypot(span[0], span[1], 2 * span[2]) / 2) * scale);
+    }
+    if (same && shown.baked === null && moved < FUSE_SAME && turned < JOINTED_SAME) return image;
+    const refuse = moved >= FUSE_SAME;
     jointedKey = key;
+    jointedView = view;
     // The canvas no longer holds a single shape's image.
     shown.baked = null;
     shown.view = null;
 
-    setLook(body.eyeZ, view, look);
     for (let i = 0; i < MAX_PIECES; i++) {
       gl.activeTexture(gl.TEXTURE0 + PIECE_UNIT + i);
       gl.bindTexture(gl.TEXTURE_3D, baked[i]?.texture ?? dummyTex);
     }
-    gl.activeTexture(gl.TEXTURE0);
-    gl.bindTexture(gl.TEXTURE_3D, dummyTex);
-    gl.uniform1i(u.pieceCount, pieces.length);
-    gl.uniform1i(u.eyePiece, eyePiece);
-    gl.uniform3fv(u.pieceMin, mins);
-    gl.uniform3fv(u.pieceSpan, spans);
-    gl.uniformMatrix3fv(u.pieceTurn, false, turns);
-    gl.uniform3fv(u.pieceShift, shifts);
-    // Normals are taken over the coarsest piece's spacing, so none is sampled finer than it is stored.
-    gl.uniform2f(u.voxelStep, Math.max(...baked.map((piece) => piece.voxelStep[0])), Math.max(...baked.map((piece) => piece.voxelStep[1])));
+    const fuse = fuserOf();
+    // Without a fuser the glass shader joins the pieces itself, where they are now.
+    if (!fuse || refuse) {
+      fused = body;
+      fusedTurns.set(turns);
+      fusedShifts.set(shifts);
+    }
+    if (fuse) {
+      const grid = scale >= 1.4 ? FUSE_HI : FUSE_LO, texture = fuse.textures.get(grid.xy)!;
+      const half = Math.max(rx * FUSE_WIDE, ry * FUSE_TALL) + GLASS_REACH, deep = depth + FUSE_DEEP;
+      const boxMin = [cx - half, cy - half, -deep], boxSpan = [2 * half, 2 * half, 2 * deep];
+      if (refuse) {
+      gl.useProgram(fuse.program);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, fuse.fb);
+      gl.viewport(0, 0, grid.xy, grid.xy);
+      gl.scissor(0, 0, grid.xy, grid.xy);
+      gl.uniform3fv(fuse.u.boxMin, boxMin);
+      gl.uniform3fv(fuse.u.boxSpan, boxSpan);
+      gl.uniform3f(fuse.u.gridSize, grid.xy, grid.xy, grid.z);
+      gl.uniform1i(fuse.u.pieceCount, pieces.length);
+      gl.uniform3fv(fuse.u.pieceMin, mins);
+      gl.uniform3fv(fuse.u.pieceSpan, spans);
+      gl.uniformMatrix3fv(fuse.u.pieceTurn, false, turns);
+      gl.uniform3fv(fuse.u.pieceShift, shifts);
+      for (let k = 0; k < grid.z; k++) {
+        gl.framebufferTextureLayer(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, texture, 0, k);
+        gl.uniform1f(fuse.u.layer, k);
+        gl.drawArrays(gl.TRIANGLES, 0, 3);
+      }
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      gl.useProgram(program);
+      }
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_3D, texture);
+      gl.uniform1i(u.pieceCount, 0);
+      gl.uniform1i(u.wholeDepth, 1);
+      gl.uniform3fv(u.boxMin, boxMin);
+      gl.uniform3fv(u.boxSpan, boxSpan);
+      gl.uniform2f(u.voxelStep, boxSpan[0] / (grid.xy - 1), boxSpan[2] / (grid.z - 1));
+    } else {
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_3D, dummyTex);
+      gl.uniform1i(u.pieceCount, pieces.length);
+      gl.uniform1i(u.wholeDepth, 0);
+      gl.uniform3fv(u.pieceMin, mins);
+      gl.uniform3fv(u.pieceSpan, spans);
+      // Normals are taken over the coarsest piece's spacing, so none is sampled finer than it is stored.
+      gl.uniform2f(u.voxelStep, Math.max(...baked.map((piece) => piece.voxelStep[0])), Math.max(...baked.map((piece) => piece.voxelStep[1])));
+    }
+    setLook(body.eyeZ, view, look);
+    // The eyes are looked up where their piece was before its joint turned it; -2 where no piece carries them.
+    gl.uniform1i(u.eyePiece, eyePiece < 0 ? -2 : eyePiece);
+    // Where the pieces are in the field that is shaded: the eyes stay with their piece.
+    gl.uniformMatrix3fv(u.pieceTurn, false, fusedTurns);
+    gl.uniform3fv(u.pieceShift, fusedShifts);
     gl.uniform3f(u.pivot, cx, cy, 0);
     gl.uniform1f(u.radius, radius);
     gl.uniform1f(u.halfDepth, depth);
@@ -719,7 +855,10 @@ function createRenderer(onContextRestored: () => void): Renderer | null {
     gl.uniform1i(u.isCapsule, baked.capsule ? 1 : 0);
     gl.uniform2fv(u.capsuleDims, baked.capsuleDims);
     gl.uniform1i(u.pieceCount, 0);
+    gl.uniform1i(u.wholeDepth, 0);
+    gl.uniform1i(u.eyePiece, -1);
     jointedKey = '';
+    jointedView = null;
 
     const [r, g, b] = readColor(look.color);
     gl.uniform3f(u.color, r / 255, g / 255, b / 255);
