@@ -27,9 +27,26 @@ export function agentLink(target: AgentTarget, prompt: string): string {
 /**
  * Open an app with a prompt filled in. Apps cap link length (T3 Code at 8,000 characters) and the
  * full design prompt is far longer, so they get the linked form, which points to the hosted copy.
+ *
+ * A page cannot ask whether an app took the link, so this watches for the next best sign: the page
+ * losing focus as the app (or the browser's "Open the app?" prompt) comes forward. It resolves
+ * false when nothing of the kind happens in time, which is what an embedded browser that drops app
+ * links, or a missing app, looks like.
  */
-export function openInAgent(target: AgentTarget, brief: Brief): void {
-  window.location.href = agentLink(target, brief.linked);
+export function openInAgent(target: AgentTarget, brief: Brief, wait = 1500): Promise<boolean> {
+  return new Promise((resolve) => {
+    const finish = (left: boolean) => {
+      clearTimeout(timer);
+      window.removeEventListener("blur", onLeave);
+      document.removeEventListener("visibilitychange", onLeave);
+      resolve(left);
+    };
+    const onLeave = () => finish(true);
+    const timer = setTimeout(() => finish(false), wait);
+    window.addEventListener("blur", onLeave);
+    document.addEventListener("visibilitychange", onLeave);
+    window.location.href = agentLink(target, brief.linked);
+  });
 }
 
 /** encodeURIComponent, not URLSearchParams: some handlers read `+` as a plus sign. */
