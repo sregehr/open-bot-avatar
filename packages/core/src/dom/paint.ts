@@ -13,7 +13,7 @@
  * overhangs it by the avatar's reach and ignores the pointer.
  */
 import { avatarExtent } from '../render.ts';
-import type { AvatarFrame, EyeMark, FramePath, Matrix } from '../render.ts';
+import type { AvatarFrame, EyeGloss, EyeMark, EyeSpotlight, FramePath, Matrix } from '../render.ts';
 import type { AvatarDefinition } from '../types.ts';
 
 /** A square in viewBox units. */
@@ -109,6 +109,13 @@ export function framePlacement(frame: AvatarFrame): { matrices: Matrix[]; bounds
     }
     return m;
   });
+  if (frame.shadow) {
+    const { cx, cy, rx, ry } = frame.shadow;
+    if (cx - rx < bounds.x0) bounds.x0 = cx - rx;
+    if (cx + rx > bounds.x1) bounds.x1 = cx + rx;
+    if (cy + ry > bounds.y1) bounds.y1 = cy + ry;
+    if (cy - ry < bounds.y0) bounds.y0 = cy - ry;
+  }
   return { matrices, bounds };
 }
 
@@ -122,6 +129,28 @@ function eyeBox(mark: EyeMark): FramePath['box'] {
   return { x, y, w: Math.max(...xs) + reach - x, h: Math.max(...ys) + reach - y };
 }
 
+/** One of an eye's lights or its shadow, left as the fill style's own color at this opacity. */
+function spot(ctx: CanvasRenderingContext2D, s: EyeSpotlight, color: string) {
+  if (s.opacity <= 0.005) return;
+  ctx.fillStyle = color;
+  ctx.globalAlpha = s.opacity;
+  ctx.beginPath();
+  ctx.ellipse(s.cx, s.cy, s.rx, s.ry, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.globalAlpha = 1;
+}
+
+/** An eye with its depth: the shadow it sits in, the eye in `ink`, then the light on it. */
+function glossyEye(ctx: CanvasRenderingContext2D, mark: EyeMark, gloss: EyeGloss | undefined, ink: string, socket = true) {
+  if (gloss && socket) spot(ctx, gloss.socket, '#000');
+  ctx.fillStyle = ink;
+  eye(ctx, mark);
+  if (!gloss) return;
+  spot(ctx, gloss.sheen, '#fff');
+  spot(ctx, gloss.glint, '#fff');
+  spot(ctx, gloss.spark, '#fff');
+}
+
 function eye(ctx: CanvasRenderingContext2D, mark: EyeMark) {
   if (mark.shape === 'path') {
     ctx.fill(new Path2D(mark.d));
@@ -132,18 +161,12 @@ function eye(ctx: CanvasRenderingContext2D, mark: EyeMark) {
     ctx.stroke(new Path2D(mark.d));
     return;
   }
-  const { x, y, width: w, height: h, radius: r } = mark;
+  const { x, y, width: w, height: h, radius: rx, radiusY: ry } = mark;
   ctx.beginPath();
-  if (typeof ctx.roundRect === 'function') ctx.roundRect(x, y, w, h, r);
-  else {
-    // Safari before 16 and Firefox before 112.
-    ctx.moveTo(x + r, y);
-    ctx.arcTo(x + w, y, x + w, y + h, r);
-    ctx.arcTo(x + w, y + h, x, y + h, r);
-    ctx.arcTo(x, y + h, x, y, r);
-    ctx.arcTo(x, y, x + w, y, r);
-    ctx.closePath();
-  }
+  // An oval: a round rect whose corners take up the whole box, or an ellipse where there is none
+  // (Safari before 16 and Firefox before 112).
+  if (typeof ctx.roundRect === 'function') ctx.roundRect(x, y, w, h, [{ x: rx, y: ry }]);
+  else ctx.ellipse(x + w / 2, y + h / 2, rx, ry, 0, 0, Math.PI * 2);
   ctx.fill();
 }
 
@@ -204,24 +227,149 @@ export function paintCanvas(surface: CanvasSurface, frame: AvatarFrame, size: nu
   ctx.lineCap = 'round';
   ctx.strokeStyle = ink;
   ctx.fillStyle = fill;
+  // A shaded frame's cross-sections carry their own colors, worked out from the frame's color.
+  const shaded = fill === frame.color;
+  let current = fill;
   // Shapes run in the thousands per second across a page: one setTransform each beats save/restore.
-  for (let i = 0; i < frame.shapes.length; i++) {
+  const paintShape = (i: number) => {
     const shape = frame.shapes[i], m = matrices[i];
     ctx.setTransform(scale * m[0], scale * m[1], scale * m[2], scale * m[3], scale * m[4] - surface.left, scale * m[5] - surface.top);
     if (shape.kind === 'slice') {
       const section = sections.get(shape.path) as Section;
+      const want = shaded && shape.fill ? shape.fill : fill;
+      if (shaded && shape.fill && shape.fade) {
+        // A limb where it leaves the body: from the body's shade into its own.
+        const g = shape.fade, paint = ctx.createLinearGradient(g.x1, g.y1, g.x2, g.y2);
+        paint.addColorStop(0, g.from);
+        paint.addColorStop(1, shape.fill);
+        ctx.fillStyle = paint;
+        current = '';
+      } else if (want !== current) ctx.fillStyle = current = want;
       ctx.fill(section.path, section.rule);
     } else if (shape.kind === 'eye') {
-      ctx.fillStyle = ink;
-      eye(ctx, shape.mark);
-      ctx.fillStyle = fill;
+      glossyEye(ctx, shape.mark, shape.gloss, ink);
+      ctx.fillStyle = current = fill;
     } else {
       const g = shape.gradient;
       const paint = ctx.createLinearGradient(g.x1, g.y1, g.x2, g.y2);
       g.stops.forEach((c, i) => paint.addColorStop(i / (g.stops.length - 1), c));
       ctx.fillStyle = paint;
       ctx.fill(new Path2D(shape.d));
-      ctx.fillStyle = fill;
+      ctx.fillStyle = current = fill;
+    }
+  };
+  const lit = !!frame.light || !!frame.grain;
+  if (!lit && !frame.shadow) {
+    for (let i = 0; i < frame.shapes.length; i++) paintShape(i);
+    return;
+  }
+
+  // Lit, grained or shadowed: the body goes first, so light and grain can fall on it alone. What is
+  // behind it (ribbons, then the shadow) is slipped underneath after, and the rest goes on top.
+  const isBody = (i: number) => {
+    const shape = frame.shapes[i];
+    return shape.kind === 'eye' || (shape.kind === 'slice' && !shape.key.startsWith('mark-'));
+  };
+  for (let i = 0; i < frame.shapes.length; i++) if (isBody(i)) paintShape(i);
+  if (lit) paintSurface();
+  ctx.globalCompositeOperation = 'destination-over';
+  for (let i = frame.shapes.length - 1; i >= 0; i--) {
+    const shape = frame.shapes[i];
+    if (shape.kind === 'ribbon' && !shape.front) paintShape(i);
+  }
+  if (frame.shadow) {
+    // A unit circle fading outward, squashed to the shadow's ellipse.
+    const { cx, cy, rx, ry, opacity } = frame.shadow;
+    ctx.setTransform(scale * rx, 0, 0, scale * ry, scale * cx - surface.left, scale * cy - surface.top);
+    const soft = ctx.createRadialGradient(0, 0, 0, 0, 0, 1);
+    soft.addColorStop(0, `rgba(0,0,0,${opacity})`);
+    soft.addColorStop(0.6, `rgba(0,0,0,${opacity * 0.45})`);
+    soft.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = soft;
+    ctx.fillRect(-1, -1, 2, 2);
+  }
+
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.fillStyle = current = fill;
+  for (let i = 0; i < frame.shapes.length; i++) {
+    const shape = frame.shapes[i];
+    if (!isBody(i) && !(shape.kind === 'ribbon' && !shape.front)) paintShape(i);
+  }
+
+  function paintSurface() {
+    // Grain and light go only over what was painted.
+    if (!ctx) return;
+    ctx.globalCompositeOperation = 'source-atop';
+  if (frame.grain) {
+    const speckle = grainPattern(ctx);
+    if (speckle) {
+      const [a, b, c, d, e, f] = frame.root;
+      // In the body's own space, so the speckles hop and lean with it.
+      ctx.setTransform(scale * a, scale * b, scale * c, scale * d, scale * e - surface.left, scale * f - surface.top);
+      ctx.globalAlpha = frame.grain;
+      ctx.fillStyle = speckle;
+      ctx.fillRect(-100, -100, 300, 300);
+      ctx.globalAlpha = 1;
+      // The eyes are ink, not stone: over the speckles again.
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.fillStyle = ink;
+      for (let i = 0; i < frame.shapes.length; i++) {
+        const shape = frame.shapes[i], m = matrices[i];
+        if (shape.kind !== 'eye') continue;
+        ctx.setTransform(scale * m[0], scale * m[1], scale * m[2], scale * m[3], scale * m[4] - surface.left, scale * m[5] - surface.top);
+        glossyEye(ctx, shape.mark, shape.gloss, ink, false);
+      }
+      ctx.globalCompositeOperation = 'source-atop';
     }
   }
+  if (frame.light) {
+    const l = frame.light;
+    ctx.setTransform(scale, 0, 0, scale, -surface.left, -surface.top);
+    const paint = ctx.createLinearGradient(l.x1, l.y1, l.x2, l.y2);
+    for (const st of l.stops) paint.addColorStop(st.at, withAlpha(st.color, st.opacity));
+    ctx.fillStyle = paint;
+    ctx.fillRect(fit.x - 1, fit.y - 1, fit.size + 2, fit.size + 2);
+  }
+  ctx.globalCompositeOperation = 'source-over';
+  }
+}
+
+function withAlpha(hex: string, alpha: number): string {
+  const n = parseInt(hex.slice(1), 16);
+  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${alpha})`;
+}
+
+/** Viewbox units per pixel of the grain tile: a speckle is about a third of a unit. */
+const GRAIN_UNIT = 0.3;
+const GRAIN_TILE = 256;
+let grainTile: HTMLCanvasElement | null | undefined;
+
+/** Dark and a few light speckles of mixed size on a clear tile; the same every time. */
+function grainPattern(ctx: CanvasRenderingContext2D): CanvasPattern | null {
+  if (grainTile === undefined) {
+    grainTile = document.createElement('canvas');
+    grainTile.width = grainTile.height = GRAIN_TILE;
+    const g = grainTile.getContext('2d');
+    if (!g) grainTile = null;
+    else {
+      let seed = 0x2f6e2b1;
+      const rnd = () => ((seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 4294967296);
+      for (let i = 0; i < 5200; i++) {
+        const x = rnd() * GRAIN_TILE, y = rnd() * GRAIN_TILE, big = rnd() < 0.06, light = rnd() < 0.3;
+        const r = big ? 1.4 + rnd() * 1.6 : 0.5 + rnd() * 0.7;
+        g.fillStyle = light ? `rgba(255,255,255,${0.25 + rnd() * 0.3})` : `rgba(40,30,20,${big ? 0.3 + rnd() * 0.25 : 0.18 + rnd() * 0.3})`;
+        // Wrapped at the edges, so the tile repeats without a seam.
+        for (const ox of [0, GRAIN_TILE, -GRAIN_TILE]) for (const oy of [0, GRAIN_TILE, -GRAIN_TILE]) {
+          if (x + ox < -4 || x + ox > GRAIN_TILE + 4 || y + oy < -4 || y + oy > GRAIN_TILE + 4) continue;
+          g.beginPath();
+          g.ellipse(x + ox, y + oy, r, r * (0.6 + rnd() * 0.4), rnd() * Math.PI, 0, Math.PI * 2);
+          g.fill();
+        }
+      }
+    }
+  }
+  if (!grainTile) return null;
+  const pattern = ctx.createPattern(grainTile, 'repeat');
+  if (pattern && typeof DOMMatrix !== 'undefined') pattern.setTransform(new DOMMatrix([GRAIN_UNIT, 0, 0, GRAIN_UNIT, 0, 0]));
+  return pattern;
 }

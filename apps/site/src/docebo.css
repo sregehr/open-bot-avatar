@@ -1,0 +1,92 @@
+/*
+ * Docebo's look over the studio's: the deep navy-to-purple of docebo.com's Agents page with its
+ * faint grid, Figtree for text and Special Gothic Expanded One for the name. Unlayered, so it wins
+ * over the studio's layered styles without repeating their selectors' weight.
+ */
+.avatar-studio {
+  --bg: #1a0a4a;
+  --card: #2b1570;
+  --raised: #3b2090;
+  --hover: #341a82;
+  --line: rgba(255, 255, 255, 0.1);
+  --line-strong: rgba(255, 255, 255, 0.2);
+  --text: #ffffff;
+  --muted: #d3c6f5;
+  --faint: #a493d8;
+  --accent: #7e2ee9;
+  --font: "Figtree Variable", "Figtree", ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --display: "Special Gothic Expanded One", var(--font);
+
+  background:
+    radial-gradient(120% 80% at 100% 100%, rgba(255, 93, 216, 0.38), transparent 60%),
+    radial-gradient(90% 70% at 0% 0%, rgba(0, 43, 128, 0.7), transparent 65%),
+    linear-gradient(165deg, #06065d 0%, #3c0f7d 48%, #7e2ee9 100%);
+  background-attachment: fixed;
+}
+
+/* The page's grid, in place of the name watermark. */
+.avatar-studio::before {
+  inset: 0;
+  transform: none;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.07) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.07) 1px, transparent 1px);
+  background-size: 96px 96px;
+}
+
+.avatar-studio :focus-visible {
+  outline-color: #ff5dd8;
+}
+
+.avatar-studio .brand-name {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 2px;
+  font-weight: 500;
+}
+
+.avatar-studio .brand-word {
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 1;
+}
+
+.avatar-studio .brand-product {
+  font-family: var(--display);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* Cards read as frosted panels on the gradient. */
+.avatar-studio .panel,
+.avatar-studio .popover {
+  box-shadow: 0 24px 60px rgba(6, 6, 93, 0.45);
+}
+
+/* The one link in the header, to the embed demo: a pill that reads as a way out of the editor. */
+.avatar-studio .site-nav a {
+  padding: 7px 16px;
+  border: 1px solid var(--line-strong);
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+  font-weight: 600;
+}
+
+.avatar-studio .site-nav a:hover {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+/* Seven pills in the state row: a little tighter than the studio's six, so they stay on one line. */
+.avatar-studio .pills-states .pill {
+  padding-inline: 9px;
+  white-space: nowrap;
+}
+
+@media (min-width: 481px) {
+  .avatar-studio .pills-states {
+    flex-wrap: nowrap;
+  }
+}

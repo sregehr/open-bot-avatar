@@ -8,9 +8,9 @@ const designPrompt = fileURLToPath(new URL('../../skills/generate-avatar/referen
 /** Where the site serves the design prompt, next to index.html (src/studio/brief.ts links to it). */
 const PROMPT_FILE = 'prompt.md';
 
-// Served from https://<user>.github.io/open-bot-avatar/ on GitHub Pages; override with BASE=/ for other hosts.
+// The Pages workflow sets BASE to the repository name; override with BASE=/ for other hosts.
 export default defineConfig({
-  base: process.env.BASE ?? '/open-bot-avatar/',
+  base: process.env.BASE ?? '/docebo-agent-avatars/',
   plugins: [
     react(),
     {
@@ -36,4 +36,6 @@ export default defineConfig({
     },
   ],
   resolve: { conditions: ['open-bot-avatar/source'] },
+  // A fixed port: `pnpm dev` runs this beside the embed demo (5180), and each links to the other.
+  server: { port: 5173, strictPort: true },
 });

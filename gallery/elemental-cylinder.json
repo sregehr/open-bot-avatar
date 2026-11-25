@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "id": "elemental-cylinder",
+  "name": "Cylinder",
+  "body": {
+    "path": "M22 24A28 11 0 0 1 78 24V76A28 11 0 0 1 22 76Z"
+  },
+  "eyes": {
+    "x": 50,
+    "y": 48,
+    "spacing": 17,
+    "scale": 1.2
+  }
+}

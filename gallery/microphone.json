@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "id": "microphone",
+  "name": "Microphone",
+  "body": {
+    "path": "M30 30A20 20 0 0 1 70 30V40A20 20 0 0 1 30 40ZM18 44H24A26 26 0 0 0 76 44H82A32 32 0 0 1 18 44ZM46 74H54V86H46ZM36 82H64Q68 82 68 86V87Q68 91 64 91H36Q32 91 32 87V86Q32 82 36 82Z"
+  },
+  "eyes": {
+    "x": 50,
+    "y": 34,
+    "spacing": 15,
+    "scale": 1
+  }
+}

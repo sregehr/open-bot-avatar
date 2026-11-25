@@ -2,7 +2,7 @@ import SYSTEM_PROMPT from "../../../../skills/generate-avatar/references/system-
 
 /**
  * The canonical avatar design prompt (schema, geometry rules, face-first
- * proportions, examples). Shared verbatim with the generate-avatar skill, so
+ * proportions, the Docebo look, rigged characters, examples). Shared verbatim with the generate-avatar skill, so
  * the copied text works in any chat model without repo or skill access.
  */
 export const AVATAR_SYSTEM_PROMPT = SYSTEM_PROMPT.trim();
@@ -28,7 +28,7 @@ function compose(task: string[], url: string): Brief {
   return {
     full: [AVATAR_SYSTEM_PROMPT, "", "---", "", ...task].join("\n"),
     linked: [
-      `Fetch the Open Bot Avatar design prompt at ${url} and follow it exactly: it defines the JSON schema, the geometry rules and the proportions.`,
+      `Fetch the Docebo avatar design prompt at ${url} and follow it exactly: it defines the JSON schema, the geometry rules, the proportions and how to rig a character.`,
       "",
       ...task,
     ].join("\n"),

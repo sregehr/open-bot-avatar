@@ -209,7 +209,8 @@ describe('live scene', () => {
     expect(a.view).not.toBe(b.view);
     expect(sceneFrame(c, { reducedMotion: true, view: { yaw: 1.3, pitch: 0 } }).stack).toBe('x');
     expect(sceneFrame(c, { reducedMotion: true, view: { yaw: Math.PI, pitch: 0 } }).eyes.every((e) => !e.visible)).toBe(true);
-    expect(sceneFrame(c, { motion: 'happy', time: 0.3 }).eyes.every((e) => e.happy)).toBe(true);
+    // A happy eye is an outline written into the morphing path, not a stroked arc.
+    expect(sceneFrame(c, { motion: 'happy', time: 0.3 }).eyes.every((e) => !e.happy && e.d !== '')).toBe(true);
   });
 
   it('keeps every part core when small sizes thin out the slices', () => {

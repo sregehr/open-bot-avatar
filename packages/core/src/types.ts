@@ -17,6 +17,26 @@ export interface AvatarEyes {
   scale: number;
 }
 
+/**
+ * What a rigged part is: `-l` and `-r` are the left and right of the screen. A forearm hangs off
+ * the arm of its side and a shin off the leg, so they move with it and bend on their own joint.
+ */
+export type AvatarJointRole = 'head' | 'arm-l' | 'arm-r' | 'forearm-l' | 'forearm-r' | 'leg-l' | 'leg-r' | 'shin-l' | 'shin-r';
+
+export const JOINT_ROLES: readonly AvatarJointRole[] = ['head', 'arm-l', 'arm-r', 'forearm-l', 'forearm-r', 'leg-l', 'leg-r', 'shin-l', 'shin-r'];
+
+/**
+ * One part of the body that moves on a joint: the `part`-th outline of body.path (holes are not
+ * counted), turning about (x, y). Several parts may share a role (a shoe moves with its shin);
+ * parts without a joint, such as the torso, stay put. Draw limbs hanging down at rest.
+ */
+export interface AvatarJoint {
+  part: number;
+  role: AvatarJointRole;
+  x: number;
+  y: number;
+}
+
 export interface AvatarDefinition {
   version: 1;
   /** Lowercase slug, e.g. "controller". */
@@ -26,12 +46,14 @@ export interface AvatarDefinition {
   /** One filled path, nonzero fill rule; holes wind opposite to their outline. */
   body: { path: string };
   eyes: AvatarEyes;
+  /** Optional: joints that let a character move its head, arms and legs (see AvatarJoint). */
+  rig?: AvatarJoint[];
 }
 
 /**
  * What the bot is doing. `thinking` and `blocked` replace the body with a mark (three dots, an
  * exclamation mark); `working` sweeps a band of ribbons round the body every few seconds; `done`
- * celebrates: it turns a few times with ribbons flying, rests, and after a while does it again.
+ * celebrates: it turns a few times with ribbons flying, rests with happy eyes, and after a while does it again.
  */
 export type AvatarState = 'idle' | 'thinking' | 'working' | 'waiting' | 'blocked' | 'done';
 
@@ -74,8 +96,20 @@ export interface RenderOptions {
    * live avatars skip cross-sections that would sit less than a pixel apart.
    */
   size?: number;
-  /** Volume amount 0..14 (default 6 = natural depth; 0 = flat). Scales every part's inferred depth. */
+  /** Volume amount 0..14 (default 6 = natural depth; 0 = flat). Scales every part's inferred depth, except that a round part (one turned about an axis) and a rigged character stop at 6. */
   depth?: number;
+  /**
+   * Depth shading 0..1 (default 0 = one flat color): cross-sections further from the viewer are
+   * drawn darker and the nearest ones a touch lighter, so the volume reads as lit from the front.
+   */
+  shading?: number;
+  /**
+   * Surface grain 0..1 (default 0): fine speckles on the body, like cast stone. Canvas renderer
+   * only; stills and the scene renderer stay smooth.
+   */
+  grain?: number;
+  /** A soft contact shadow on the ground under the body (default false). It reads on light pages. */
+  shadow?: boolean;
   /** Extra view rotation in radians on top of the resting view (drag-to-turn). yaw turns left/right, pitch tips. */
   view?: { yaw: number; pitch: number };
   /** Animation clock in seconds. Same inputs always produce the same SVG. */

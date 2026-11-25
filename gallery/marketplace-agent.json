@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "id": "marketplace-agent",
+  "name": "Marketplace",
+  "body": {
+    "path": "M26 36H34V30A16 16 0 0 1 66 30V36H74Q80 36 80.5 42L83 80Q83.5 88 75.5 88H24.5Q16.5 88 17 80L19.5 42Q20 36 26 36ZM40 36H60V30A10 10 0 0 0 40 30Z"
+  },
+  "eyes": {
+    "x": 50,
+    "y": 58,
+    "spacing": 18,
+    "scale": 1.2
+  }
+}

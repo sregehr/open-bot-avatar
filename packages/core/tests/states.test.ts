@@ -4,7 +4,7 @@ import { createAnimator } from '../src/animator.ts';
 import { parseHex, toOklch, type Rgb } from '../src/color.ts';
 import { ribbonPieces, ribbonReach } from '../src/effects.ts';
 import { examples, getExample } from '../src/examples.ts';
-import { DONE_CYCLE_S, DONE_TURN_S, MOODS, STATES, blendPoses, computePose, hashString, resolveLook } from '../src/motion.ts';
+import { DONE_CYCLE_S, DONE_TURN_S, MOODS, STATES, blendPoses, computePose, hashString, noise, resolveLook } from '../src/motion.ts';
 
 const TAU = 2 * Math.PI;
 import { MOOD_MS } from '../src/mood.ts';
@@ -50,21 +50,23 @@ describe('state and mood', () => {
     }
   });
 
-  it('keeps a mood on any state: a happy bot has its arcs while it works, waits and finishes', () => {
+  it('keeps a mood on any state: a happy bot has its happy eyes while it works, waits and finishes', () => {
+    const happy = (state: 'idle' | 'working' | 'waiting' | 'done') =>
+      avatarFrame(mug, { state, mood: 'happy', reducedMotion: true, stateAge: DONE_TURN_S + 1 }).shapes.flatMap((s) => (s.kind === 'eye' ? [s] : []));
     for (const state of ['idle', 'working', 'waiting', 'done'] as const) {
-      const marks = eyesOf(avatarFrame(mug, { state, mood: 'happy', time: 1.1, stateAge: DONE_TURN_S + 1 }));
-      expect(marks.length).toBe(2);
-      expect(marks.every((m) => m.shape === 'arc')).toBe(true);
+      const eyes = happy(state);
+      expect(eyes.length).toBe(2);
+      // The dome of a happy eye, the same in every state: an outline whose lower lid hides the low highlight.
+      expect(eyes.every((e) => e.mark.shape === 'path' && e.gloss?.spark.opacity === 0 && (e.gloss?.glint.opacity ?? 0) > 0.5)).toBe(true);
     }
   });
 });
 
 describe('eyes', () => {
-  it('are the plain pill and the plain arc at rest, and an outline in between', () => {
+  it('are the plain oval at rest, and an outline when happy and on the way there', () => {
     const at = (t: number) => eyesOf(avatarFrame(mug, { mood: 'happy', time: 1.1, motionBlend: { from: { state: 'idle', mood: 'neutral' }, t } }));
     expect(eyesOf(avatarFrame(mug, { time: 1.1 })).every((m) => m.shape === 'pill')).toBe(true);
-    expect(at(1).every((m) => m.shape === 'arc')).toBe(true);
-    for (const t of [0.1, 0.5, 0.9]) expect(at(t).every((m) => m.shape === 'path')).toBe(true);
+    for (const t of [0.1, 0.5, 0.9, 1]) expect(at(t).every((m) => m.shape === 'path')).toBe(true);
   });
 
   it('morph without a jump: the outline starts at the pill and each step moves a little', () => {
@@ -126,21 +128,30 @@ describe('eyes', () => {
     }
   }, 30_000);
 
-  it('flatten to parallel slits while waiting, unless the bot is happy', () => {
+  it('are half-lidded under parallel tipped lids while waiting, unless the bot is happy', () => {
     const marks = eyesOf(avatarFrame(mug, { state: 'waiting', reducedMotion: true }));
     const boxes = marks.map((mark) => {
       if (mark.shape !== 'path') throw new Error('expected an outline');
       const n = numbers(mark.d);
       const xs = n.filter((_, i) => i % 2 === 0), ys = n.filter((_, i) => i % 2 === 1);
-      // The slope of the slit: where its left end and its right end sit.
-      const left = ys[xs.indexOf(Math.min(...xs))], right = ys[xs.indexOf(Math.max(...xs))];
+      // The slope of the lid: how high the outline reaches on its left half and on its right.
+      const mid = (Math.min(...xs) + Math.max(...xs)) / 2;
+      const left = Math.min(...ys.filter((_, i) => xs[i] < mid)), right = Math.min(...ys.filter((_, i) => xs[i] > mid));
       return { w: Math.max(...xs) - Math.min(...xs), h: Math.max(...ys) - Math.min(...ys), slope: right - left };
     });
     expect(boxes.length).toBe(2);
-    for (const b of boxes) expect(b.w).toBeGreaterThan(2 * b.h);
+    const open = eyesOf(avatarFrame(mug, { reducedMotion: true }))[0];
+    if (open.shape !== 'pill') throw new Error('expected an open eye');
+    // As wide as the open eye and well short of its height: the lid covers the top of it.
+    for (const b of boxes) {
+      expect(b.w).toBeCloseTo(open.width, 0);
+      expect(b.h).toBeLessThan(0.7 * open.height);
+    }
     expect(boxes[0].slope).toBeGreaterThan(0.2);
     expect(boxes[1].slope).toBeCloseTo(boxes[0].slope, 1);
-    expect(eyesOf(avatarFrame(mug, { state: 'waiting', mood: 'happy', reducedMotion: true })).every((m) => m.shape === 'arc')).toBe(true);
+    const happy = eyesOf(avatarFrame(mug, { state: 'waiting', mood: 'happy', reducedMotion: true }));
+    expect(happy.every((m) => m.shape === 'path')).toBe(true);
+    expect(happy).not.toEqual(marks);
   });
 });
 
@@ -394,7 +405,7 @@ describe('done', () => {
 
   it('celebrates as it begins: a few turns with more ribbons than a working bot has, then a rest', () => {
     expect(resting.ribbons).toBe(0);
-    expect(computePose({ ...base, stateAge: DONE_CYCLE_S - 0.01 })).toEqual(computePose({ ...base, stateAge: DONE_TURN_S }));
+    expect(computePose({ ...base, stateAge: DONE_CYCLE_S - 0.01 })).toEqual(resting);
     // Without an age it is at rest.
     expect(computePose(base)).toEqual(resting);
     const mid = computePose({ ...base, stateAge: DONE_TURN_S / 2 });
@@ -411,6 +422,24 @@ describe('done', () => {
     expect(turned / (2 * Math.PI)).toBeCloseTo(3, 1);
     // It winds up the other way first.
     expect(computePose({ ...base, stateAge: 0.15 }).yaw).toBeLessThan(resting.yaw);
+  });
+
+  it('turns its eyes happy once the turn is over, and opens them again for the next', () => {
+    const arc = (stateAge?: number) => computePose({ ...base, stateAge }).eyes.arc;
+    // Plain eyes all through the first turn, arcs easing in as it ends.
+    for (const age of [0, 1, DONE_TURN_S - 0.01, DONE_TURN_S]) expect(arc(age)).toBe(0);
+    expect(arc(DONE_TURN_S + 0.2)).toBeGreaterThan(0);
+    expect(arc(DONE_TURN_S + 0.2)).toBeLessThan(1);
+    expect(resting.eyes.arc).toBe(1);
+    // No jump where a cycle wraps round: the arcs open over the start of the next turn.
+    const length = DONE_CYCLE_S * (1 + 0.15 * noise(5, 31));
+    expect(arc(length - 0.001)).toBe(1);
+    expect(arc(length + 0.001)).toBeCloseTo(1, 3);
+    expect(arc(length + 1)).toBe(0);
+    // Drawn at rest it is smiling, under reduced motion too; a happy bot keeps its arcs throughout.
+    expect(arc()).toBe(1);
+    expect(computePose({ ...base, reducedMotion: true, stateAge: 1 }).eyes.arc).toBe(1);
+    expect(computePose({ ...base, mood: 'happy', stateAge: 1 }).eyes.arc).toBe(1);
   });
 
   it('celebrates again after a rest, the other way round, at a pace of its own', () => {

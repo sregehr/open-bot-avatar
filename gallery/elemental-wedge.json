@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "id": "elemental-wedge",
+  "name": "Wedge",
+  "body": {
+    "path": "M82.2 19.5Q88 14 88 22L88 78Q88 86 80 86L20 86Q12 86 17.8 80.5Z"
+  },
+  "eyes": {
+    "x": 68,
+    "y": 66,
+    "spacing": 15,
+    "scale": 1
+  }
+}

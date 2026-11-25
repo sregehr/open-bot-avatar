@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "id": "pencil",
+  "name": "Pencil",
+  "body": {
+    "path": "M36 10H64Q72 10 72 18V62L54 88Q50 92 46 88L28 62V18Q28 10 36 10Z"
+  },
+  "eyes": {
+    "x": 50,
+    "y": 38,
+    "spacing": 15,
+    "scale": 1
+  }
+}

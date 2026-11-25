@@ -1,0 +1,25 @@
+{
+  "name": "docebo-agent-avatars",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Docebo's agent avatars as a micro front end: two custom elements and a small API, in one dependency-free file.",
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": true,
+  "main": "./dist/docebo-agent-avatars.js",
+  "module": "./dist/docebo-agent-avatars.js",
+  "exports": {
+    ".": "./dist/docebo-agent-avatars.js",
+    "./global": "./dist/docebo-agent-avatars.iife.js"
+  },
+  "files": ["dist"],
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "open-bot-avatar": "workspace:^",
+    "vite": "^8.3.5"
+  }
+}

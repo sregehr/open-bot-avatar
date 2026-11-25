@@ -1,8 +1,8 @@
 /**
  * Renderers for a validated silhouette + eye placement with implied volume
- * (see volume.ts). One flat body color, two plain dark eyes; no gradients,
- * gloss, rim light or shadows. Output is built only from numbers and the
- * renderer's own markup.
+ * (see volume.ts). One body color, flat unless `shading`, `grain` or `shadow`
+ * ask for more, and two dark oval eyes with a shadow round them and highlights
+ * on them. Output is built only from numbers and the renderer's own markup.
  *
  * - avatarFrame: one frame flattened to plain data (paths, matrices, eyes),
  *   for any vector renderer.
@@ -27,16 +27,23 @@ import type { Box } from './effects.ts';
 import { eyePath, plainLook } from './eyes.ts';
 import type { EyeSpot } from './eyes.ts';
 import { computePose, hashString, noise } from './motion.ts';
-import type { EyeLook, Pose } from './motion.ts';
+import type { EyeLook, Limbs, Pose } from './motion.ts';
 import type { Bounds, Point } from './path.ts';
 import { EYE_H, EYE_W, GAZE_X, GAZE_Y, HAPPY_ARC, analyzeBody, eyeCenters, gazeRange, validateAvatar } from './validate.ts';
 import type { GazeRange } from './validate.ts';
 import { buildVolume } from './volume.ts';
-import type { Volume, VolumeSlice } from './volume.ts';
+import type { Vec3, Volume, VolumeSlice } from './volume.ts';
 import type { AvatarDefinition, RenderOptions } from './types.ts';
 
 export const DEFAULT_COLOR = '#ff6a1a';
 export const DEFAULT_EYE_COLOR = '#151515';
+/**
+ * The open eye as drawn, against the contract's 4 × 11 pill: this many times as wide and as tall.
+ * A rounder eye reads as a bead in the body; it stays inside the room validation keeps for the
+ * pill and the happy arc.
+ */
+const EYE_OVAL = { wide: 1.5, tall: 0.8 } as const;
+
 /** `depth` option value that maps to the natural inferred volume. */
 export const DEFAULT_DEPTH = 6;
 const MAX_DEPTH = 14;
@@ -61,6 +68,8 @@ interface Prepared {
   detail: Map<string, boolean[]>;
   /** Where the ribbons' hoops are centred and how far the body reaches from there (see ribbonRims). */
   rims: () => { work: Rim; cage: Rim };
+  /** How far each arm of a rigged body can be raised and bent before it runs into the head (see armReach). */
+  reach: () => { l?: ArmReach; r?: ArmReach };
 }
 
 const cache = new Map<string, Prepared>();
@@ -119,7 +128,9 @@ export function ribbonsFollow(rim: Rim, pose: Pick<Pose, 'lift' | 'sx' | 'sy'>, 
 }
 
 function prepare(definition: AvatarDefinition, depth: number): Prepared {
-  const key = JSON.stringify([definition?.id, definition?.name, definition?.body?.path, definition?.eyes, depth]);
+  // A character keeps its proportions: a head drawn round is a ball, never stretched front to back.
+  if (definition?.rig?.length) depth = Math.min(depth, DEFAULT_DEPTH);
+  const key = JSON.stringify([definition?.id, definition?.name, definition?.body?.path, definition?.eyes, definition?.rig, depth]);
   const hit = cache.get(key);
   if (hit) return hit;
   const res = validateAvatar(definition);
@@ -129,7 +140,7 @@ function prepare(definition: AvatarDefinition, depth: number): Prepared {
   const vol = buildVolume(def, depth / DEFAULT_DEPTH, body);
   const id = `oba-${hashString(`${def.id}|${def.body.path}|${depth}`).toString(36)}`;
   const ids = new Map<string, string>();
-  for (const part of vol.parts) for (const s of [...part.zSlices, ...part.xSlices]) if (!ids.has(s.d)) ids.set(s.d, `${id}-${ids.size}`);
+  for (const part of vol.parts) for (const s of [...part.zSlices, ...part.xSlices, ...(part.ySlices ?? [])]) if (!ids.has(s.d)) ids.set(s.d, `${id}-${ids.size}`);
   const prepared: Prepared = {
     def,
     vol,
@@ -139,6 +150,7 @@ function prepare(definition: AvatarDefinition, depth: number): Prepared {
     ids,
     detail: new Map(),
     rims: lazy(() => ribbonRims(body.polys, vol.bounds)),
+    reach: lazy(() => ({ l: armReach(def, vol, 'l'), r: armReach(def, vol, 'r') })),
   };
   if (cache.size >= 64) cache.delete(cache.keys().next().value as string);
   cache.set(key, prepared);
@@ -163,7 +175,162 @@ function poseOf(p: Prepared, options: RenderOptions): Pose {
     reducedMotion: options.reducedMotion === true,
     view: options.view,
     blend: options.motionBlend,
+    rigged: !!p.def.rig?.length,
   });
+}
+
+// ---------------------------------------------------------------------------
+// Rig: parts that turn about joints
+
+/** A rigid move in model space: p' = r·p + t, r a 3 × 3 rotation in row order. */
+interface Rigid {
+  r: number[];
+  t: Vec3;
+}
+
+const moved = (g: Rigid, [x, y, z]: Vec3): Vec3 => [
+  g.r[0] * x + g.r[1] * y + g.r[2] * z + g.t[0],
+  g.r[3] * x + g.r[4] * y + g.r[5] * z + g.t[1],
+  g.r[6] * x + g.r[7] * y + g.r[8] * z + g.t[2],
+];
+
+/** `a` after `b`. */
+function after(a: Rigid, b: Rigid): Rigid {
+  const r = new Array<number>(9);
+  for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) r[i * 3 + j] = a.r[i * 3] * b.r[j] + a.r[i * 3 + 1] * b.r[3 + j] + a.r[i * 3 + 2] * b.r[6 + j];
+  return { r, t: moved(a, b.t) };
+}
+
+/**
+ * A turn about the joint at (px, py) on the mid-plane: first `swing` degrees about the horizontal
+ * axis (a limb that hangs down comes toward the viewer), then `turn` degrees in the plane of the
+ * drawing, clockwise on screen.
+ */
+function joint(px: number, py: number, turn: number, swing: number): Rigid {
+  const a = (turn * Math.PI) / 180, b = (swing * Math.PI) / 180;
+  const ca = Math.cos(a), sa = Math.sin(a), cb = Math.cos(b), sb = Math.sin(b);
+  const r = [ca, -sa * cb, sa * sb, sa, ca * cb, -ca * sb, 0, sb, cb];
+  const g: Rigid = { r, t: [0, 0, 0] };
+  const [x, y] = moved(g, [px, py, 0]);
+  g.t = [px - x, py - y, -(r[6] * px + r[7] * py)];
+  return g;
+}
+
+/**
+ * How far an arm goes before it meets the head: `max` is the highest it can be raised out straight,
+ * and `lo`/`hi` how far its forearm can then bend each way, every REACH_STEP degrees of raise from 0.
+ */
+interface ArmReach { max: number; lo: number[]; hi: number[] }
+const REACH_STEP = 5;
+/** Room kept between an arm and the head, viewBox units. */
+const REACH_GAP = 0.8;
+/** Over how many degrees a raise eases into its limit instead of stopping dead. */
+const REACH_EASE = 22;
+
+/**
+ * A character's head is often wider than its shoulders, so an arm raised overhead would pass
+ * through it. Measured once per character, on the drawing: the arm is turned up a step at a time
+ * until its elbow or hand would touch the head (or what the head wears), and at each step the
+ * forearm is bent each way until the hand would.
+ */
+function armReach(def: AvatarDefinition, vol: Volume, side: 'l' | 'r'): ArmReach | undefined {
+  const rig = def.rig ?? [];
+  const sh = rig.find((j) => j.role === `arm-${side}`), fo = rig.find((j) => j.role === `forearm-${side}`);
+  const heads = rig.filter((j) => j.role === 'head').map((j) => vol.parts[j.part]);
+  if (!sh || !fo || !heads.length) return undefined;
+  const arm = vol.parts[sh.part], fore = vol.parts[fo.part];
+  const sign = side === 'l' ? 1 : -1;
+  const ring = [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1], [0.7, 0.7], [-0.7, 0.7], [0.7, -0.7], [-0.7, -0.7]];
+  const touches = (x: number, y: number, r: number) =>
+    heads.some((h) => x + r > h.bounds.minX && x - r < h.bounds.maxX && y + r > h.bounds.minY && y - r < h.bounds.maxY && ring.some(([dx, dy]) => h.height(x + dx * r, y + dy * r) > 0));
+  // Along the forearm from the elbow: its middle, and the hand at its end.
+  const tip: Point = [fo.x + (fore.center[0] - fo.x) * 2, fo.y + (fore.center[1] - fo.y) * 2];
+  const along = (t: number): Vec3 => [fo.x + (tip[0] - fo.x) * t, fo.y + (tip[1] - fo.y) * t, 0];
+  const ra = arm.thickness / 2 + REACH_GAP, rf = fore.thickness / 2 + REACH_GAP;
+  const clear = (raise: number, bend: number): boolean => {
+    const up = joint(sh.x, sh.y, sign * raise, 0), on = after(up, joint(fo.x, fo.y, sign * bend, 0));
+    const elbow = moved(up, [fo.x, fo.y, 0]);
+    if (touches(elbow[0], elbow[1], ra)) return false;
+    for (const t of [0.45, 0.78]) {
+      const q = moved(on, along(t));
+      if (touches(q[0], q[1], rf)) return false;
+    }
+    return true;
+  };
+  if (!clear(0, 0)) return undefined;
+  let max = 0;
+  while (max < 180 && clear(max + 1, 0)) max++;
+  const lo: number[] = [], hi: number[] = [];
+  for (let a = 0; a < max + REACH_STEP; a += REACH_STEP) {
+    const raise = Math.min(a, max);
+    let down = 0, upTo = 0;
+    while (down > -150 && clear(raise, down - 3)) down -= 3;
+    while (upTo < 150 && clear(raise, upTo + 3)) upTo += 3;
+    lo.push(down); hi.push(upTo);
+  }
+  return { max, lo, hi };
+}
+
+/** An arm's raise and bend, held within its reach: the raise eases into its limit, the bend stops at its own. */
+function withinReach(reach: ArmReach | undefined, raise: number, bend: number): [number, number] {
+  if (!reach || raise <= 0) return [raise, bend];
+  const knee = Math.max(0, reach.max - REACH_EASE);
+  const a = raise <= knee ? raise : knee + (reach.max - knee) * (1 - Math.exp(-(raise - knee) / Math.max(1, reach.max - knee)));
+  const at = Math.min(reach.lo.length - 1, a / REACH_STEP), i = Math.min(reach.lo.length - 2, Math.floor(at)), u = at - i;
+  const lo = reach.lo.length > 1 ? reach.lo[i] + (reach.lo[i + 1] - reach.lo[i]) * u : reach.lo[0];
+  const hi = reach.hi.length > 1 ? reach.hi[i] + (reach.hi[i + 1] - reach.hi[i]) * u : reach.hi[0];
+  return [a, Math.min(hi, Math.max(lo, bend))];
+}
+
+/** How much better another stack must face the viewer before a limb leaves the view's own. */
+const STACK_KEEP = 0.12;
+
+/**
+ * Which stack of cross-sections a turned limb is drawn with: the one whose planes face the viewer
+ * most squarely once the limb has turned. Drawn with planes seen edge-on, a limb falls apart into
+ * stripes with gaps between them. The view's own stack is kept while it is nearly as good, so a
+ * limb at rest matches the body it hangs from.
+ */
+function limbStack(vol: Volume, v: ViewBasis, stack: 'z' | 'x', part: number, g: Rigid | undefined): 'z' | 'x' | 'y' {
+  if (!g || !vol.parts[part].ySlices?.length) return stack;
+  const facing = { x: Math.abs(facingOf(v, [g.r[0], g.r[3], g.r[6]])), y: Math.abs(facingOf(v, [g.r[1], g.r[4], g.r[7]])), z: Math.abs(facingOf(v, [g.r[2], g.r[5], g.r[8]])) };
+  const best = facing.x > facing.y ? (facing.x > facing.z ? 'x' : 'z') : facing.y > facing.z ? 'y' : 'z';
+  return facing[stack] >= facing[best] - STACK_KEEP ? stack : best;
+}
+
+/** Where each rigged part is moved to in this pose, by part index; parts without a joint are absent. */
+function rigMoves(def: AvatarDefinition, pose: Limbs, reach?: { l?: ArmReach; r?: ArmReach }): Map<number, Rigid> {
+  // An arm held out in front of the body is clear of the head by where it is, not by how it is turned.
+  const [armL, foreL] = pose.armLz > 3 ? [pose.armL, pose.foreL] : withinReach(reach?.l, pose.armL, pose.foreL);
+  const [armR, foreR] = pose.armRz > 3 ? [pose.armR, pose.foreR] : withinReach(reach?.r, pose.armR, pose.foreR);
+  const limbs = { ...pose, armL, foreL, armR, foreR };
+  const rig = def.rig ?? [];
+  const at = (role: string) => rig.find((j) => j.role === role);
+  const own: Record<string, [number, number]> = {
+    head: [limbs.head, 0],
+    'arm-l': [limbs.armL, limbs.armLs], 'arm-r': [-limbs.armR, limbs.armRs],
+    'forearm-l': [limbs.foreL, limbs.foreLs], 'forearm-r': [-limbs.foreR, limbs.foreRs],
+    'leg-l': [limbs.legL, limbs.legLs], 'leg-r': [-limbs.legR, limbs.legRs],
+    'shin-l': [0, limbs.shinL], 'shin-r': [0, limbs.shinR],
+  };
+  const parent: Record<string, string> = { 'forearm-l': 'arm-l', 'forearm-r': 'arm-r', 'shin-l': 'leg-l', 'shin-r': 'leg-r' };
+  const moves = new Map<number, Rigid>();
+  for (const j of rig) {
+    let g = joint(j.x, j.y, own[j.role][0], own[j.role][1]);
+    const up = at(parent[j.role]);
+    if (up) g = after(joint(up.x, up.y, own[up.role][0], own[up.role][1]), g);
+    // An arm held out in front of the body: the whole of it, forearm and all.
+    const lift = j.role.endsWith('arm-l') ? limbs.armLz : j.role.endsWith('arm-r') ? limbs.armRz : 0;
+    if (lift) g = { r: g.r, t: [g.t[0], g.t[1], g.t[2] + lift] };
+    moves.set(j.part, g);
+  }
+  return moves;
+}
+
+/** The projection of a plane's local coordinates once its part has been moved: still one affine map. */
+function movedMatrix(v: ViewBasis, pivot: Point, g: Rigid, to3: (a: number, b: number) => Vec3): M {
+  const o = projectPoint(v, moved(g, to3(0, 0)), pivot), x = projectPoint(v, moved(g, to3(1, 0)), pivot), y = projectPoint(v, moved(g, to3(0, 1)), pivot);
+  return [x[0] - o[0], x[1] - o[1], y[0] - o[0], y[1] - o[1], o[0], o[1]];
 }
 
 function esc(s: string): string {
@@ -285,7 +452,7 @@ export function avatarExtent(definition: AvatarDefinition, depth?: number): { x:
  * viewer, minus z-slices hidden behind the core (they add nothing to the
  * silhouette or the paint). Their union is the silhouette on screen.
  */
-function drawnSlices(p: Prepared, v: ViewBasis, size: number | undefined, visit: (s: VolumeSlice, m: M, part: number, index: number) => void) {
+function drawnSlices(p: Prepared, v: ViewBasis, size: number | undefined, visit: (s: VolumeSlice, m: M, part: number, index: number) => void, whole?: (part: number) => boolean, stackOf?: (part: number) => 'z' | 'x' | 'y') {
   const { vol } = p;
   const stack = activeStack(v);
   const pivot = pivotOf(vol.bounds);
@@ -293,8 +460,17 @@ function drawnSlices(p: Prepared, v: ViewBasis, size: number | undefined, visit:
   const kept = sliceDetail(p, stack, size);
   let k = 0;
   vol.parts.forEach((part, i) => {
+    const own = stackOf?.(i) ?? stack;
+    const first = k;
+    k += (stack === 'z' ? part.zSlices : part.xSlices).length;
+    if (own !== stack) {
+      // A limb turned so that the view's own stack is edge-on: all of the stack that faces the viewer.
+      (own === 'z' ? part.zSlices : own === 'x' ? part.xSlices : (part.ySlices ?? [])).forEach((s, j) => visit(s, own === 'z' ? planeMatrix(v, s.at, pivot) : sidePlaneMatrix(v, s.at, pivot), i, j));
+      return;
+    }
     (stack === 'z' ? part.zSlices : part.xSlices).forEach((s, j) => {
-      if (!kept[k++] || !drawn(s)) return;
+      // A part turned out of the plane shows cross-sections the plain view would hide: keep them all.
+      if (!kept[first + j] || (!whole?.(i) && !drawn(s))) return;
       visit(s, stack === 'z' ? planeMatrix(v, s.at, pivot) : sidePlaneMatrix(v, s.at, pivot), i, j);
     });
   });
@@ -312,11 +488,14 @@ function sliceCull(v: ViewBasis): (s: VolumeSlice) => boolean {
 // Eyes (shared by both renderers, in face-plane coordinates)
 
 interface EyeState {
-  /** Neutral center and size. */
+  /** Neutral center and contract size (the happy arc and the slit are measured from it). */
   x: number;
   y: number;
   w: number;
   h: number;
+  /** The open eye as drawn: an oval this wide and tall. */
+  pw: number;
+  ph: number;
   /** Gaze offset. */
   dx: number;
   dy: number;
@@ -331,6 +510,8 @@ interface EyeState {
 function eyeStates(p: Prepared, pose: Pose): [EyeState, EyeState] {
   const s = p.vol.eyeScale;
   const w = EYE_W * s, h = EYE_H * s;
+  // Drawn rounder than the contract's tall pill: wider (as far as the gap between the eyes allows) and shorter.
+  const pw = Math.min(w * EYE_OVAL.wide, p.def.eyes.spacing * 0.8), ph = h * EYE_OVAL.tall;
   const r = p.range;
   const dx = pose.gazeX * (pose.gazeX >= 0 ? r.right : r.left) * GAZE_X * s;
   const dy = pose.gazeY * (pose.gazeY >= 0 ? r.down : r.up) * GAZE_Y * s;
@@ -338,14 +519,15 @@ function eyeStates(p: Prepared, pose: Pose): [EyeState, EyeState] {
   const plain = plainLook(pose.eyes);
   return ([0, 1] as const).map((i) => {
     const squint = i === 0 ? pose.squintL : pose.squintR;
-    const open = Math.max(h * Math.max(0.09, (1 - pose.blink) * (1 - squint * 0.4)), w * 0.55);
-    return { x: centers[i][0], y: centers[i][1], w, h, dx, dy, open, shift: (h - open) * 0.18, look: pose.eyes, plain };
+    // A blink closes the oval to a low lens, never to nothing.
+    const open = Math.max(ph * Math.max(0.09, (1 - pose.blink) * (1 - squint * 0.4)), pw * 0.24);
+    return { x: centers[i][0], y: centers[i][1], w, h, pw, ph, dx, dy, open, shift: (ph - open) * 0.18, look: pose.eyes, plain };
   }) as [EyeState, EyeState];
 }
 
 /** Where an eye is drawn: with its gaze offset, or without it where a transform applies the gaze. */
 function eyeSpot(e: EyeState, gaze: boolean): EyeSpot {
-  return { x: e.x + (gaze ? e.dx : 0), y: e.y + (gaze ? e.dy : 0), w: e.w, h: e.h, open: e.open, shift: e.shift };
+  return { x: e.x + (gaze ? e.dx : 0), y: e.y + (gaze ? e.dy : 0), w: e.w, h: e.h, pw: e.pw, ph: e.ph, open: e.open, shift: e.shift };
 }
 
 function happyArc(e: EyeState): string {
@@ -355,11 +537,37 @@ function happyArc(e: EyeState): string {
 }
 
 function eyeMark(e: EyeState): EyeMark {
-  if (e.plain === 'arc') return { shape: 'arc', d: happyArc(e), strokeWidth: e.w * HAPPY_ARC.stroke };
-  if (e.plain === null) return { shape: 'path', d: eyePath(e.look, eyeSpot(e, true)) };
+  if (e.plain !== 'pill') return { shape: 'path', d: eyePath(e.look, eyeSpot(e, true)) };
   const cx = e.x + e.dx, cy = e.y + e.dy + e.shift;
-  return { shape: 'pill', x: cx - e.w / 2, y: cy - e.open / 2, width: e.w, height: e.open, radius: Math.min(e.w, e.open) / 2 };
+  return { shape: 'pill', x: cx - e.pw / 2, y: cy - e.open / 2, width: e.pw, height: e.open, radius: e.pw / 2, radiusY: e.open / 2 };
 }
+
+/**
+ * What makes an eye a glossy bead set into the body instead of a flat mark: a shadow round it and
+ * the light on it. Only an open eye has them; they fade as it turns into an arc or a slit and
+ * close with it when it blinks. The light stays to the upper left while the eye looks about.
+ */
+function eyeGloss(e: EyeState): EyeGloss | undefined {
+  // How much of each look: open, happy (the top of the eye shows) and lidded (the bottom does).
+  const happy = clamp(e.look.arc, 0, 1), lidded = clamp(e.look.slit, 0, 1 - happy), open = 1 - happy - lidded;
+  const cx = e.x + e.dx, wide = e.pw;
+  // A happy eye does not blink: it keeps its full height.
+  const tall = mix1(e.open, e.ph, happy), cy = e.y + e.dy + mix1(e.shift, 0, happy);
+  const lid = clamp((tall / e.ph) * 1.6, 0, 1);
+  const rim = 0.08 * wide + 0.25;
+  return {
+    // The shadow belongs to the whole socket; a part-closed eye has a lid over it instead.
+    socket: { cx, cy: cy + 0.03 * tall, rx: wide / 2 + rim, ry: tall / 2 + rim, opacity: 0.22 * open },
+    // The sheen lies across the top: it draws up into a happy eye's dome and is under a lowered lid.
+    sheen: { cx: cx - 0.06 * wide - 0.2 * e.dx, cy: cy - mix1(0.16, 0.27, happy) * tall, rx: mix1(0.37, 0.3, happy) * wide, ry: mix1(0.29, 0.14, happy) * tall, opacity: 0.17 * (open + happy) },
+    // The highlight stays with what shows: upper left, or just under the lid.
+    glint: { cx: cx - 0.17 * wide - 0.25 * e.dx, cy: cy + mix1(-0.23, 0.1, lidded) * tall - 0.2 * e.dy * lid, rx: 0.15 * wide, ry: Math.min(0.17 * wide, mix1(0.2, 0.13, happy + lidded) * tall), opacity: 0.95 * lid },
+    // The second one is low on the eye: a happy eye's lid covers it.
+    spark: { cx: cx + 0.19 * wide - 0.15 * e.dx, cy: cy + 0.25 * tall, rx: 0.065 * wide, ry: Math.min(0.065 * wide, 0.1 * tall), opacity: 0.55 * (open + lidded) * lid },
+  };
+}
+
+const mix1 = (a: number, b: number, k: number) => a + (b - a) * k;
 
 function colors(options: RenderOptions): { color: string; ink: string } {
   return {
@@ -380,9 +588,30 @@ export type Matrix = [number, number, number, number, number, number];
  * bot's slits, and every shape on the way from one look to the next).
  */
 export type EyeMark =
-  | { shape: 'pill'; x: number; y: number; width: number; height: number; radius: number }
+  /** The open eye: an oval in the box x, y, width, height (`radius` and `radiusY` are its half width and half height). */
+  | { shape: 'pill'; x: number; y: number; width: number; height: number; radius: number; radiusY: number }
   | { shape: 'arc'; d: string; strokeWidth: number }
   | { shape: 'path'; d: string };
+
+/** An ellipse of light or shadow on an eye. */
+export interface EyeSpotlight {
+  cx: number;
+  cy: number;
+  rx: number;
+  ry: number;
+  opacity: number;
+}
+
+export interface EyeGloss {
+  /** The shadow round the eye, a little bigger than it: the eye sits in the body. */
+  socket: EyeSpotlight;
+  /** A broad soft light across the upper half. */
+  sheen: EyeSpotlight;
+  /** The bright highlight, upper left. */
+  glint: EyeSpotlight;
+  /** A small second highlight, lower right. */
+  spark: EyeSpotlight;
+}
 
 export type FrameShape =
   | {
@@ -392,8 +621,25 @@ export type FrameShape =
       /** Id of an entry in AvatarFrame.paths. */
       path: string;
       matrix: Matrix;
+      /** With `shading`: this cross-section's own color, in place of AvatarFrame.color. */
+      fill?: string;
+      /**
+       * With `shading`, on a limb where it leaves the body: the fill runs from `from` at (x1, y1)
+       * to `fill` at (x2, y2), in the path's own coordinates, and stays at each beyond its end.
+       */
+      fade?: { from: string; x1: number; y1: number; x2: number; y2: number };
     }
-  | { kind: 'eye'; key: 'eye-0' | 'eye-1'; matrix: Matrix; mark: EyeMark }
+  | {
+      kind: 'eye';
+      key: 'eye-0' | 'eye-1';
+      matrix: Matrix;
+      mark: EyeMark;
+      /**
+       * An open eye's depth, in the mark's coordinates: paint `socket` (black) under the mark, then
+       * `sheen`, `glint` and `spark` (white) over it, each at its opacity.
+       */
+      gloss?: EyeGloss;
+    }
   | {
       /**
        * A piece of a ribbon: fill `d` in `fill`. Each ribbon has a hue of its own, set apart from
@@ -445,6 +691,15 @@ export interface AvatarFrame {
   root: Matrix;
   /** Back to front. */
   shapes: FrameShape[];
+  /**
+   * With `shading`: light from the upper left, as a linear gradient in viewBox coordinates (outside
+   * `root`) to paint over everything the shapes covered, and only there.
+   */
+  light?: { x1: number; y1: number; x2: number; y2: number; stops: { at: number; color: string; opacity: number }[] };
+  /** With `grain`: how strong the speckles on the body are, 0..1. They move with `root`. */
+  grain?: number;
+  /** With `shadow`: an ellipse on the ground, outside `root`, fading from `opacity` at its center to nothing. Paint it first. */
+  shadow?: { cx: number; cy: number; rx: number; ry: number; opacity: number };
 }
 
 /** Compute one flat frame of a definition. Throws if the definition is invalid. */
@@ -589,6 +844,152 @@ function effectsOf(p: Prepared, pose: Pose, options: RenderOptions): Effects {
   };
 }
 
+/** Shade levels between the furthest and the nearest cross-section. */
+const SHADE_LEVELS = 32;
+/** At full shading: how much darker (OKLCH lightness) the furthest cross-section is, and how much lighter the nearest. */
+const SHADE_DARK = 0.3;
+const SHADE_LIGHT = 0.06;
+const shadeRamps = new Map<string, string[]>();
+
+/** The body color at each shade level, furthest first: darker and a little cooler toward the back. */
+function shadeRamp(color: string, amount: number): string[] {
+  const key = `${color}|${amount}`;
+  let ramp = shadeRamps.get(key);
+  if (!ramp) {
+    const [L, C, h] = toOklch(parseHex(color) as Rgb);
+    ramp = Array.from({ length: SHADE_LEVELS + 1 }, (_, i) => {
+      const t = i / SHADE_LEVELS;
+      const light = L - amount * SHADE_DARK * (1 - t) ** 1.25 + amount * SHADE_LIGHT * Math.max(0, (t - 0.75) / 0.25) ** 2;
+      return toHex(oklch(clamp(light, 0.04, 0.985), C * (1 + 0.12 * amount * (1 - t)), h - 8 * amount * (1 - t)));
+    });
+    if (shadeRamps.size >= 64) shadeRamps.clear();
+    shadeRamps.set(key, ramp);
+  }
+  return ramp;
+}
+
+/**
+ * How much of a cross-section's shade comes from where it lies within its own part, the rest from
+ * where it lies in the whole body. Its own part gives every limb a darker rim and a lighter
+ * middle, which sets it off from the body it rests against; the whole body keeps a far arm
+ * darker than a near one.
+ */
+const SHADE_OWN = 0.55;
+
+/**
+ * Which parts of a rigged body are shaded as one: an upper arm with its forearm, a thigh with its
+ * shin and shoe, a head with what it wears. Shaded apart, each would end in its own darker rim
+ * and the limb would show a seam at every elbow and knee.
+ */
+/**
+ * Where each limb part's depth is taken: at the joint it shares with the rest of its limb (the
+ * elbow for an upper arm and its forearm, the knee for a thigh, its shin and the shoe). Taken at
+ * each part's own middle, two parts turned differently would lie at different depths where they
+ * meet, and the nearer would show its rounded end over the other.
+ */
+function limbKeys(def: AvatarDefinition): Map<number, Point> | undefined {
+  if (!def.rig?.length) return undefined;
+  const keys = new Map<number, Point>();
+  for (const j of def.rig) {
+    if (j.role === 'head') continue;
+    const lower = j.role.startsWith('arm') || j.role.startsWith('leg') ? def.rig.find((k) => k.role === j.role.replace('arm', 'forearm').replace('leg', 'shin')) : j;
+    if (lower) keys.set(j.part, [lower.x, lower.y]);
+  }
+  return keys;
+}
+
+/** How far along a limb, in its own widths, the body's shade gives way to the limb's. */
+const ROOT_FADE = 1.5;
+
+/**
+ * Where a limb leaves the body it takes the body's shade there and eases into its own a little way
+ * along. Shaded on its own from the start, its round end shows on the body as a rim, like a ball of
+ * clay pressed on; this way it grows out of the body instead.
+ */
+function fadeRoots(items: { depth: number; part?: number; at?: number; axis?: 'x' | 'y' | 'z'; shape: FrameShape }[], def: AvatarDefinition, vol: Volume): void {
+  if (!def.rig?.length) return;
+  const jointed = new Set(def.rig.map((j) => j.part));
+  for (const root of def.rig) {
+    if (!root.role.startsWith('arm') && !root.role.startsWith('leg')) continue;
+    // The trunk under the joint: the part without a joint that stands highest there.
+    let trunk = -1, top = 0;
+    vol.parts.forEach((part, i) => {
+      const h = jointed.has(i) ? 0 : part.height(root.x, root.y);
+      if (h > top) { top = h; trunk = i; }
+    });
+    if (trunk < 0) continue;
+    const lower = def.rig.find((k) => k.role === root.role.replace('arm', 'forearm').replace('leg', 'shin'));
+    const part = vol.parts[root.part];
+    const to: Point = lower ? [lower.x, lower.y] : part.center;
+    const len = Math.hypot(to[0] - root.x, to[1] - root.y);
+    if (len < 1) continue;
+    const reach = Math.min(len, ROOT_FADE * part.thickness);
+    const ux = (to[0] - root.x) / len, uy = (to[1] - root.y) / len;
+    for (const it of items) {
+      if (it.part !== root.part || it.shape.kind !== 'slice' || !it.shape.fill || it.axis === 'y') continue;
+      // The trunk's cross-section that makes its surface at the joint, as this stack cuts it.
+      let from: string | undefined, best = Infinity;
+      for (const other of items) {
+        if (other.part !== trunk || other.shape.kind !== 'slice' || !other.shape.fill || other.axis !== it.axis) continue;
+        const d = it.axis === 'z' ? ((other.at as number) <= top ? top - (other.at as number) : Infinity) : Math.abs((other.at as number) - root.x);
+        if (d < best) { best = d; from = other.shape.fill; }
+      }
+      if (!from || from === it.shape.fill) continue;
+      it.shape.fade = it.axis === 'z'
+        ? { from, x1: root.x, y1: root.y, x2: root.x + ux * reach, y2: root.y + uy * reach }
+        : { from, x1: 0, y1: root.y, x2: 0, y2: root.y + (Math.abs(uy) < 0.2 ? 0.2 * (uy < 0 ? -1 : 1) : uy) * reach };
+    }
+  }
+}
+
+function shadeGroups(def: AvatarDefinition): Map<number, string> | undefined {
+  if (!def.rig?.length) return undefined;
+  const groups = new Map<number, string>();
+  for (const j of def.rig) groups.set(j.part, j.role.replace('forearm', 'arm').replace('shin', 'leg'));
+  return groups;
+}
+
+/** Give each cross-section its shade by how near the viewer it is. `items` are sorted back to front. */
+function shadeSlices(items: { depth: number; part?: number; shape: FrameShape }[], color: string, shading: number | undefined, groups?: Map<number, string>) {
+  const amount = clamp(Number.isFinite(shading) ? (shading as number) : 0, 0, 1);
+  if (amount <= 0) return;
+  let min = Infinity, max = -Infinity;
+  for (const it of items) {
+    if (it.shape.kind !== 'slice') continue;
+    if (it.depth < min) min = it.depth;
+    if (it.depth > max) max = it.depth;
+  }
+  if (!(max - min > 0.5)) return;
+  // Each part's own nearest and furthest cross-section.
+  const own = new Map<number, [number, number]>();
+  for (const it of items) {
+    if (it.shape.kind !== 'slice' || it.part === undefined) continue;
+    const range = own.get(it.part);
+    if (!range) own.set(it.part, [it.depth, it.depth]);
+    else {
+      if (it.depth < range[0]) range[0] = it.depth;
+      if (it.depth > range[1]) range[1] = it.depth;
+    }
+  }
+  // The parts of one limb are shaded on one scale, that of the deepest of them, each about its own
+  // middle: where two of them meet, cross-sections at the same depth are the same shade.
+  const span = new Map<number | string, number>();
+  for (const [part, range] of own) {
+    const g = groups?.get(part) ?? part;
+    span.set(g, Math.max(span.get(g) ?? 0, range[1] - range[0]));
+  }
+  const ramp = shadeRamp(color, Math.round(amount * 20) / 20);
+  for (const it of items) {
+    if (it.shape.kind !== 'slice') continue;
+    const whole = (it.depth - min) / (max - min);
+    const range = it.part === undefined ? undefined : own.get(it.part);
+    const scale = it.part === undefined ? 0 : (span.get(groups?.get(it.part) ?? it.part) as number);
+    // A part that is the whole body, or too thin to have a range, takes the body's shade alone.
+    const t = range && own.size > 1 && scale > 0.5 ? whole + (0.5 + (it.depth - (range[0] + range[1]) / 2) / scale - whole) * SHADE_OWN : whole;
+    it.shape.fill = ramp[Math.round(clamp(t, 0, 1) * SHADE_LEVELS)];
+  }
+}
+
 function flatFrame(definition: AvatarDefinition, options: RenderOptions, size: number | undefined): AvatarFrame {
   const p = prepare(definition, depthOption(options));
   const { vol } = p;
@@ -606,30 +1007,40 @@ function flatFrame(definition: AvatarDefinition, options: RenderOptions, size: n
 
   // Only the cross-sections this view draws are listed; ids are stable across frames.
   const paths = new Map<string, FramePath>();
-  const items: { depth: number; shape: FrameShape }[] = [];
+  const items: { depth: number; part?: number; at?: number; axis?: 'x' | 'y' | 'z'; shape: FrameShape }[] = [];
+  const moves = p.def.rig?.length ? rigMoves(p.def, pose.limbs, p.reach()) : null;
+  const keys = moves ? limbKeys(p.def) : undefined;
   if (fx.body > 0) {
-    drawnSlices(p, v, size, (s, m, i, j) => {
+    drawnSlices(p, v, size, (s, plain, i, j) => {
+      const g = moves?.get(i);
+      const m = g ? movedMatrix(v, pivot, g, s.axis === 'z' ? (a, c) => [a, c, s.at] : s.axis === 'x' ? (a, c) => [s.at, c, -a] : (a, c) => [a, s.at, c]) : plain;
       let path = paths.get(s.d);
       if (!path) {
         path = { id: p.ids.get(s.d) as string, d: s.d, evenOdd: s.evenOdd, box: { ...s.box } };
         paths.set(s.d, path);
       }
       // Depth keys are taken under the eyes for the eye part, so only depth decides eye-vs-body order there.
-      const [rx, ry] = i === vol.eyePart ? eyesMid : vol.parts[i].center;
-      const depth = stack === 'z' ? projectPoint(v, [rx, ry, s.at], pivot)[2] : projectPoint(v, [s.at, ry, 0], pivot)[2];
-      items.push({ depth, shape: { kind: 'slice', key: `${i}${stack}${j}`, path: path.id, matrix: shrink(m) } });
-    });
+      const [rx, ry] = i === vol.eyePart ? eyesMid : (keys?.get(i) ?? vol.parts[i].center);
+      const key3: Vec3 = s.axis === 'z' ? [rx, ry, s.at] : s.axis === 'x' ? [s.at, ry, 0] : [rx, s.at, 0];
+      const depth = projectPoint(v, g ? moved(g, key3) : key3, pivot)[2];
+      items.push({ depth, part: i, at: s.at, axis: s.axis, shape: { kind: 'slice', key: `${i}${s.axis}${j}`, path: path.id, matrix: shrink(m) } });
+    }, moves ? (i) => moves.has(i) : undefined, moves ? (i) => limbStack(vol, v, stack, i, moves.get(i)) : undefined);
+    const face = moves?.get(vol.eyePart);
     // Painted on the surface; each eye goes once the surface under it turns away.
     eyeStates(p, pose).forEach((e, idx) => {
       if (eyeVisible(vol, v, idx)) {
         const z = vol.eyeZ[idx] + EYE_LIFT;
+        const mid: Vec3 = [eyesMid[0], eyesMid[1], z];
         items.push({
-          depth: projectPoint(v, [eyesMid[0], eyesMid[1], z], pivot)[2] + 1e-6,
-          shape: { kind: 'eye', key: idx === 0 ? 'eye-0' : 'eye-1', matrix: shrink(planeMatrix(v, z, pivot)), mark: eyeMark(e) },
+          depth: projectPoint(v, face ? moved(face, mid) : mid, pivot)[2] + 1e-6,
+          // The eyes are painted on the head: they tilt with it.
+          shape: { kind: 'eye', key: idx === 0 ? 'eye-0' : 'eye-1', matrix: shrink(face ? movedMatrix(v, pivot, face, (a, c) => [a, c, z]) : planeMatrix(v, z, pivot)), mark: eyeMark(e), gloss: eyeGloss(e) },
         });
       }
     });
     items.sort((a, c) => a.depth - c.depth);
+    shadeSlices(items, color, options.shading, shadeGroups(p.def));
+    fadeRoots(items, p.def, vol);
   }
 
   // Ribbons and marks stay put while the body moves: their matrices undo the root's motion.
@@ -642,21 +1053,47 @@ function flatFrame(definition: AvatarDefinition, options: RenderOptions, size: n
     if (!paths.has(mark.id)) paths.set(mark.id, { id: mark.id, d: mark.d, evenOdd: false, box: mark.box });
     return { kind: 'slice', key: `mark-${i}`, path: mark.id, matrix: mul(fixed as M, mark.matrix) };
   });
-  return {
+  const frame: AvatarFrame = {
     name: p.def.name, color, ink, paths: [...paths.values()], root,
     shapes: [...ribbon(false), ...items.map((it) => it.shape), ...ribbon(true), ...marks],
   };
+  const amount = clamp(Number.isFinite(options.shading) ? (options.shading as number) : 0, 0, 1);
+  if (amount > 0 && fx.body > 0) {
+    // Lit from the upper left: a highlight there, a cool shade toward the lower right.
+    frame.light = {
+      x1: b.minX, y1: b.minY - 6, x2: b.maxX, y2: b.maxY + 6,
+      stops: [
+        { at: 0, color: '#ffffff', opacity: 0.26 * amount },
+        { at: 0.42, color: '#ffffff', opacity: 0 },
+        { at: 0.58, color: '#0a0a32', opacity: 0 },
+        { at: 1, color: '#0a0a32', opacity: 0.3 * amount },
+      ],
+    };
+  }
+  const grain = clamp(Number.isFinite(options.grain) ? (options.grain as number) : 0, 0, 1);
+  if (grain > 0 && fx.body > 0) frame.grain = grain;
+  if (options.shadow && fx.body > 0) {
+    // On the ground under the resting body: smaller and fainter while the body is in the air.
+    const air = clamp(-pose.lift / 16, 0, 0.5);
+    const rx = Math.max(10, (b.maxX - b.minX) * 0.42) * (1 - air) * fx.body;
+    frame.shadow = { cx: (b.minX + b.maxX) / 2, cy: b.maxY + 2, rx, ry: Math.max(2.4, rx * 0.13), opacity: 0.34 * (1 - air) };
+  }
+  return frame;
 }
 
 // ---------------------------------------------------------------------------
 // Standalone SVG still
 
-function eyeSvg(mark: EyeMark, ink: string): string {
+const spotSvg = (s: EyeSpotlight, color: string) =>
+  s.opacity > 0.005 ? `<ellipse cx="${f(s.cx)}" cy="${f(s.cy)}" rx="${f(s.rx)}" ry="${f(s.ry)}" fill="${color}" fill-opacity="${f(s.opacity)}"/>` : '';
+
+function eyeSvg(mark: EyeMark, ink: string, gloss?: EyeGloss): string {
+  if (gloss) return spotSvg(gloss.socket, '#000') + eyeSvg(mark, ink) + spotSvg(gloss.sheen, '#fff') + spotSvg(gloss.glint, '#fff') + spotSvg(gloss.spark, '#fff');
   if (mark.shape === 'path') return `<path d="${mark.d}" fill="${ink}"/>`;
   if (mark.shape === 'arc') {
     return `<path d="${mark.d}" fill="none" stroke="${ink}" stroke-width="${f(mark.strokeWidth)}" stroke-linecap="round"/>`;
   }
-  return `<rect x="${f(mark.x)}" y="${f(mark.y)}" width="${f(mark.width)}" height="${f(mark.height)}" rx="${f(mark.radius)}" fill="${ink}"/>`;
+  return `<rect x="${f(mark.x)}" y="${f(mark.y)}" width="${f(mark.width)}" height="${f(mark.height)}" rx="${f(mark.radius)}" ry="${f(mark.radiusY)}" fill="${ink}"/>`;
 }
 
 type RibbonGradient = { x1: number; y1: number; x2: number; y2: number; stops: string[] };
@@ -678,24 +1115,56 @@ function ribbonSvg(d: string, g: RibbonGradient): string {
 export function renderAvatarSvg(definition: AvatarDefinition, options: RenderOptions = {}): string {
   const frame = avatarFrame(definition, options);
   const defsMarkup = frame.paths.map((d) => `<path id="${d.id}" d="${d.d}"${d.evenOdd ? ' fill-rule="evenodd"' : ''}/>`).join('');
+  const fades = new Map<string, string>();
+  const fadeDefs: string[] = [];
+  const fadeOf = (fill: string, g: NonNullable<Extract<FrameShape, { kind: 'slice' }>['fade']>): string => {
+    const key = `${g.from},${fill},${f(g.x1)},${f(g.y1)},${f(g.x2)},${f(g.y2)}`;
+    let id = fades.get(key);
+    if (!id) {
+      id = `oba-f${hashString(key).toString(36)}`;
+      fades.set(key, id);
+      fadeDefs.push(`<linearGradient id="${id}" gradientUnits="userSpaceOnUse" x1="${f(g.x1)}" y1="${f(g.y1)}" x2="${f(g.x2)}" y2="${f(g.y2)}"><stop offset="0" stop-color="${g.from}"/><stop offset="1" stop-color="${fill}"/></linearGradient>`);
+    }
+    return id;
+  };
   const body = frame.shapes
     .map((s) =>
-      s.kind === 'slice' ? `<use href="#${s.path}" transform="${mat(s.matrix)}"/>`
-      : s.kind === 'eye' ? `<g transform="${mat(s.matrix)}">${eyeSvg(s.mark, frame.ink)}</g>`
+      s.kind === 'slice' ? `<use href="#${s.path}" transform="${mat(s.matrix)}"${s.fill ? ` fill="${s.fade ? `url(#${fadeOf(s.fill, s.fade)})` : s.fill}"` : ''}/>`
+      : s.kind === 'eye' ? `<g transform="${mat(s.matrix)}">${eyeSvg(s.mark, frame.ink, s.gloss)}</g>`
       : `<g transform="${mat(s.matrix)}">${ribbonSvg(s.d, s.gradient)}</g>`,
     )
     .join('');
   const size = Number.isFinite(options.size) && (options.size as number) > 0 ? f(clamp(options.size as number, 8, 4096)) : null;
   const dims = size ? ` width="${size}" height="${size}"` : '';
   const label = esc(frame.name);
+  const uid = frame.light || frame.shadow ? hashString(`${mat(frame.root)}|${body}|${frame.color}`).toString(36) : '';
+  let under = '', over = '';
+  if (frame.shadow) {
+    const { cx, cy, rx, ry, opacity } = frame.shadow;
+    under =
+      `<radialGradient id="oba-s${uid}"><stop offset="0" stop-color="#000" stop-opacity="${f(opacity)}"/><stop offset="0.6" stop-color="#000" stop-opacity="${f(opacity * 0.45)}"/><stop offset="1" stop-color="#000" stop-opacity="0"/></radialGradient>` +
+      `<ellipse cx="${f(cx)}" cy="${f(cy)}" rx="${f(rx)}" ry="${f(ry)}" fill="url(#oba-s${uid})"/>`;
+  }
+  if (frame.light) {
+    const l = frame.light;
+    const stops = l.stops.map((st) => `<stop offset="${f(st.at)}" stop-color="${st.color}" stop-opacity="${f(st.opacity)}"/>`).join('');
+    // The light falls only where the body was drawn: the same shapes again, in white, as its mask.
+    over =
+      `<mask id="oba-m${uid}" maskUnits="userSpaceOnUse" x="-50" y="-50" width="200" height="200"><g transform="${mat(frame.root)}" fill="#fff" stroke="#fff">${body.replace(/ fill="(?!none)[^"]*"/g, '')}</g></mask>` +
+      `<linearGradient id="oba-l${uid}" gradientUnits="userSpaceOnUse" x1="${f(l.x1)}" y1="${f(l.y1)}" x2="${f(l.x2)}" y2="${f(l.y2)}">${stops}</linearGradient>` +
+      `<rect x="-50" y="-50" width="200" height="200" fill="url(#oba-l${uid})" mask="url(#oba-m${uid})"/>`;
+  }
 
   return (
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"${dims} role="img" aria-label="${label}" overflow="visible">` +
     `<title>${label}</title>` +
-    `<defs>${defsMarkup}</defs>` +
+    `<defs>${defsMarkup}${fadeDefs.join('')}</defs>` +
+    under +
     `<g transform="${mat(frame.root)}" fill="${frame.color}">` +
     body +
-    `</g></svg>`
+    `</g>` +
+    over +
+    `</svg>`
   );
 }
 
@@ -739,14 +1208,14 @@ export function renderAvatarScene(definition: AvatarDefinition, options: Pick<Re
     vol.parts.map((part) => (axis === 'z' ? part.zSlices : part.xSlices).map(sliceMarkup).join('')).join('') +
     `</div>`;
   const eyes = eyeStates(p, poseOf(p, { reducedMotion: true })).map((e, i) => {
-    const box = `left:${u(e.x - e.w / 2)};top:${u(e.y - e.h / 2)};width:${u(e.w)};height:${u(e.h)}`;
+    const box = `left:${u(e.x - e.pw / 2)};top:${u(e.y - e.ph / 2)};width:${u(e.pw)};height:${u(e.ph)}`;
     return (
       `<div data-eye="${i}" style="position:absolute;${box};backface-visibility:hidden;transform:translateZ(${u(vol.eyeZ[i] + EYE_LIFT)})">` +
-      `<i style="position:absolute;inset:0;border-radius:999px;background:${ink}"></i>` +
-      `<svg viewBox="${f(e.x - e.w / 2)} ${f(e.y - e.h / 2)} ${f(e.w)} ${f(e.h)}" style="${FILL}overflow:visible;display:none" aria-hidden="true">` +
+      `<i style="position:absolute;inset:0;border-radius:50%;background:${ink}"></i>` +
+      `<svg viewBox="${f(e.x - e.pw / 2)} ${f(e.y - e.ph / 2)} ${f(e.pw)} ${f(e.ph)}" style="${FILL}overflow:visible;display:none" aria-hidden="true">` +
       `<path d="${happyArc(e)}" fill="none" stroke="${ink}" stroke-width="${f(e.w * HAPPY_ARC.stroke)}" stroke-linecap="round"/></svg>` +
       // Every look between the pill and the arc: its outline is written each frame it changes.
-      `<svg data-morph viewBox="${f(e.x - e.w / 2)} ${f(e.y - e.h / 2)} ${f(e.w)} ${f(e.h)}" style="${FILL}overflow:visible;display:none" aria-hidden="true">` +
+      `<svg data-morph viewBox="${f(e.x - e.pw / 2)} ${f(e.y - e.ph / 2)} ${f(e.pw)} ${f(e.ph)}" style="${FILL}overflow:visible;display:none" aria-hidden="true">` +
       `<path fill="${ink}"/></svg>` +
       `</div>`
     );
@@ -838,10 +1307,10 @@ export function sceneFrame(definition: AvatarDefinition, options: RenderOptions 
     slices: p.vol.parts.flatMap((part) => (stack === 'z' ? part.zSlices : part.xSlices).map((s) => kept[k++] && drawn(s))),
     eyes: states.map((e, i) => ({
       visible: eyeVisible(p.vol, v, i),
-      happy: e.plain === 'arc',
+      happy: false,
       transform: `translateZ(${u(p.vol.eyeZ[i] + EYE_LIFT)}) translate(${u(e.dx)},${u(e.dy)})`,
-      pill: `translateY(${u(e.shift)}) scaleY(${r4(e.open / e.h)})`,
-      d: e.plain === null ? eyePath(e.look, eyeSpot(e, false)) : '',
+      pill: `translateY(${u(e.shift)}) scaleY(${r4(e.open / e.ph)})`,
+      d: e.plain !== 'pill' ? eyePath(e.look, eyeSpot(e, false)) : '',
     })),
   };
 }

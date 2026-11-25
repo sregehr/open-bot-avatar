@@ -93,9 +93,9 @@ describe("share links", () => {
   const mug = examples.find((e) => e.id === "mug")!;
 
   it("round-trip a starter, color, state and mood", () => {
-    const link = shareLink("https://example.test/", { source: "starter", definition: mug }, { color: "#ec4899", state: "working", mood: "happy" });
+    const link = shareLink("https://example.test/", { source: "starter", definition: mug }, { color: "#ff5dd8", state: "working", mood: "happy" });
     expect(link).toBe("https://example.test/?avatar=mug&color=pink&state=working&mood=happy");
-    expect(readShare(new URL(link).search)).toEqual({ avatar: "mug", color: "#ec4899", state: "working", mood: "happy" });
+    expect(readShare(new URL(link).search)).toEqual({ avatar: "mug", color: "#ff5dd8", state: "working", mood: "happy" });
   });
 
   it("still open links from before state and mood were separate", () => {

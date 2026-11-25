@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "id": "elemental-crescent",
+  "name": "Crescent",
+  "body": {
+    "path": "M84 67.4A40 40 0 1 1 62.1 12.6A30 30 0 0 0 84 67.4Z"
+  },
+  "eyes": {
+    "x": 28,
+    "y": 48,
+    "spacing": 14,
+    "scale": 1
+  }
+}

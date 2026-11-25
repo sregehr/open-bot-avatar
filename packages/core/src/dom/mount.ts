@@ -14,6 +14,7 @@
  * animation loop.
  */
 import { createAnimator } from '../animator.ts';
+import { LIMB_MS } from '../mood.ts';
 import { pointerGaze } from '../follow.ts';
 import { resolveLook } from '../motion.ts';
 import { DEFAULT_COLOR, DEFAULT_EYE_COLOR, liveFrame, renderAvatarScene, renderAvatarSvg, sceneFrame, type SceneFrame } from '../render.ts';
@@ -31,6 +32,12 @@ export interface AvatarOptions {
   eyeColor?: string;
   /** Volume amount 0..14 (6 = natural depth, 0 = flat). */
   depth?: number;
+  /** Depth shading 0..1 (default 0 = one flat color). Needs a hex `color`; the scene renderer stays flat. */
+  shading?: number;
+  /** Surface grain 0..1 (default 0), like cast stone. Live canvas avatars only. */
+  grain?: number;
+  /** A soft contact shadow under the body (default false). */
+  shadow?: boolean;
   /** What the bot is doing (default `idle`). Changes ease from what is on screen. */
   state?: AvatarState;
   /**
@@ -145,7 +152,7 @@ const keys = new WeakMap<object, string>();
 function geometryKey(definition: AvatarDefinition): string {
   let key = keys.get(definition);
   if (key === undefined) {
-    key = JSON.stringify([definition?.id, definition?.name, definition?.body?.path, definition?.eyes]);
+    key = JSON.stringify([definition?.id, definition?.name, definition?.body?.path, definition?.eyes, definition?.rig]);
     keys.set(definition, key);
   }
   return key;
@@ -245,6 +252,8 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
           color: p.color,
           eyeColor: p.eyeColor,
           depth: p.depth,
+          shading: p.shading,
+          shadow: p.shadow,
           state: look.state,
           mood: look.mood,
           view: p.view,
@@ -266,9 +275,12 @@ export function mountAvatar(host: HTMLElement, initial: AvatarOptions): MountedA
         : p.followPointer && pointer && rect && rect.width > 0
           ? pointerGaze(pointer, rect, eyesOrigin(p.definition))
           : null;
-      const step = animator.step({ now, state: look.state, mood: look.mood, target, hold: p.holdGaze, reducedMotion });
+      const step = animator.step({ now, state: look.state, mood: look.mood, target, hold: p.holdGaze, reducedMotion, changeMs: p.definition?.rig?.length ? LIMB_MS : undefined });
       const options: RenderOptions = {
         depth: p.depth,
+        shading: p.shading,
+        grain: p.grain,
+        shadow: p.shadow,
         state: look.state,
         mood: look.mood,
         stateAge: step.stateAge,

@@ -10,6 +10,11 @@
  *   (mug body, pot, bulb), taken from exact scanline widths.
  * - revolve-x: a solid of revolution about a horizontal axis shared by the
  *   whole body (barbell: bar → cylinder, plates → discs).
+ * - tube: the limb of a rigged character. Every circle that fits inside the
+ *   outline becomes a ball, and the part is all of them together: as deep as
+ *   it is wide all the way along, whichever way it points, so an arm is round,
+ *   a hand is a ball on the end of it, and two parts that share a joint's
+ *   circle share its ball and meet without a step.
  *
  * From the height field the part is cut, once, into two stacks of plain
  * cross-section paths: z-slices (planes facing the viewer, level sets of h)
@@ -26,11 +31,11 @@ import { EYE_H, EYE_W, GAZE_X, GAZE_Y, analyzeBody, drawnEyesFit, eyeCenters, ey
 import type { BodyAnalysis, GazeRange } from './validate.ts';
 import type { AvatarDefinition, AvatarEyes } from './types.ts';
 
-export type PartKind = 'inflate' | 'revolve-x' | 'revolve-y';
+export type PartKind = 'inflate' | 'revolve-x' | 'revolve-y' | 'tube';
 
 export interface VolumeSlice {
-  /** 'z': the plane z = at, path in (x, y). 'x': the plane x = at, path in (u = -z, y). */
-  axis: 'z' | 'x';
+  /** 'z': the plane z = at, path in (x, y). 'x': the plane x = at, path in (u = -z, y). 'y': the plane y = at, path in (x, z). */
+  axis: 'z' | 'x' | 'y';
   at: number;
   d: string;
   /** The same cross-section as polygons in its plane's coordinates (`d` is a rounded serialization of them). */
@@ -61,6 +66,11 @@ export interface VolumePart {
   axis?: number;
   zSlices: VolumeSlice[];
   xSlices: VolumeSlice[];
+  /**
+   * A character's limbs only: planes facing up and down. A limb turns every way, and when it has
+   * turned so that both other stacks are seen edge-on, this is the one that still faces the viewer.
+   */
+  ySlices?: VolumeSlice[];
   /** Front surface height at a point, 0 outside the part. */
   height: (x: number, y: number) => number;
 }
@@ -84,6 +94,17 @@ export interface Volume {
 
 export type Vec3 = [number, number, number];
 
+/** A rigged character's trunk (the parts without a joint) is this deep, as a share of its width. */
+export const TRUNK_DEPTH = 0.86;
+/**
+ * A character's limbs are all cut on one grid: the same sample spacing, the same planes across
+ * (every LIMB_EVERY samples) and the same depths (every LIMB_LEVEL, before the volume scale).
+ * Where a thigh meets a shin, the cross-sections of the two then line up and the joint between
+ * them does not show; cut each to its own measure, they would overlap like roof tiles.
+ */
+const LIMB_STEP = 0.35;
+const LIMB_EVERY = 3;
+const LIMB_LEVEL = 0.5;
 /** Largest depth an inflated part may take, viewBox units. */
 export const MAX_PART_DEPTH = 30;
 /** Drawn eyes are up to this much larger than the contract's 4 × 11 pill when the body has room. */
@@ -230,11 +251,55 @@ interface Surface {
   profile: Profile | null;
   axis: number;
   v: number;
+  /** Tubes: the squared height of the balls over the part's sample grid, before the volume scale. */
+  balls?: Balls;
+}
+
+/** The squared height of a tube over its sample grid (negative outside every ball), and the radius of the ball that gives it. */
+interface Balls { x0: number; y0: number; step: number; nx: number; ny: number; rise: Float64Array; radius: Float64Array }
+
+/** A tube's squared height at a point, between its samples. */
+function riseAt(b: Balls, x: number, y: number): number {
+  const fx = Math.min(b.nx - 1.001, Math.max(0, (x - b.x0) / b.step)), fy = Math.min(b.ny - 1.001, Math.max(0, (y - b.y0) / b.step));
+  const i = Math.floor(fx), j = Math.floor(fy), u = fx - i, w = fy - j, k = j * b.nx + i;
+  return (b.rise[k] * (1 - u) + b.rise[k + 1] * u) * (1 - w) + (b.rise[k + b.nx] * (1 - u) + b.rise[k + b.nx + 1] * u) * w;
+}
+
+/**
+ * The balls of a tube: one for every sample on the ridge of the distance field (as far from the
+ * outline as its neighbors on both sides, along a row, a column or a diagonal), as big as fits
+ * there. Each sample of the grid takes the highest of them.
+ */
+function tubeBalls(g: Grid): Balls {
+  const { nx, ny, sd } = g;
+  const qx: number[] = [], qy: number[] = [], qr: number[] = [];
+  for (let j = 1; j < ny - 1; j++) {
+    for (let i = 1; i < nx - 1; i++) {
+      const k = j * nx + i, c = sd[k];
+      if (c < 0.3) continue;
+      const ridge = (a: number, b: number) => c >= sd[k + a] - 1e-9 && c >= sd[k + b] - 1e-9;
+      if (ridge(-1, 1) || ridge(-nx, nx) || ridge(-nx - 1, nx + 1) || ridge(-nx + 1, nx - 1)) { qx.push(i); qy.push(j); qr.push(c / g.step); }
+    }
+  }
+  const rise = new Float64Array(nx * ny), radius = new Float64Array(nx * ny);
+  for (let j = 0; j < ny; j++) {
+    for (let i = 0; i < nx; i++) {
+      let best = -1e9, of = 0;
+      for (let q = 0; q < qx.length; q++) {
+        const dx = i - qx[q], dy = j - qy[q], v = qr[q] * qr[q] - dx * dx - dy * dy;
+        if (v > best) { best = v; of = qr[q]; }
+      }
+      rise[j * nx + i] = best * g.step * g.step;
+      radius[j * nx + i] = of * g.step;
+    }
+  }
+  return { x0: g.x0, y0: g.y0, step: g.step, nx, ny, rise, radius };
 }
 
 /** Front surface height at a point inside the part, `sd` from its outline (used by inflated parts only). */
 function surfaceHeight(s: Surface, x: number, y: number, sd: number): number {
   if (s.kind === 'inflate') return surfaceZ(s.fillet, sd);
+  if (s.kind === 'tube') return s.v * Math.sqrt(Math.max(0, riseAt(s.balls as Balls, x, y)));
   const p = s.profile as Profile;
   return s.kind === 'revolve-x'
     ? s.v * Math.sqrt(Math.max(0, radiusAt(p, x) ** 2 - (y - s.axis) ** 2))
@@ -275,9 +340,10 @@ export function revolveAxis(body: BodyAnalysis): number | null {
 interface Grid { x0: number; y0: number; step: number; nx: number; ny: number; sd: Float64Array; h: Float64Array; inside: Uint8Array }
 
 /** A part's sample grid with its signed distances, before any height is known. */
-function sampleGrid(polys: Point[][], b: Bounds, step: number, index: EdgeIndex): Grid {
+function sampleGrid(polys: Point[][], b: Bounds, step: number, index: EdgeIndex, snap = false): Grid {
   const pad = 1;
-  const x0 = b.minX - pad, y0 = b.minY - pad;
+  // Snapped, the samples of every part lie on the same lines.
+  const x0 = snap ? Math.floor((b.minX - pad) / step) * step : b.minX - pad, y0 = snap ? Math.floor((b.minY - pad) / step) * step : b.minY - pad;
   const nx = Math.ceil((b.maxX - b.minX + 2 * pad) / step) + 1;
   const ny = Math.ceil((b.maxY - b.minY + 2 * pad) / step) + 1;
   const sd = index.distances({ x0, y0, step, nx, ny }), inside = new Uint8Array(nx * ny);
@@ -384,6 +450,18 @@ function revolveCuts(g: Grid, surface: Surface): LevelCut {
       over[j * nx + i] = 2 * Math.max(r, 0.5);
     }
   }
+  return riseCuts(g, base, over, v);
+}
+
+/** Cross-sections of a tube: as a revolved part's, with the squared height read from its balls. */
+function tubeCuts(g: Grid, surface: Surface): LevelCut {
+  const balls = surface.balls as Balls;
+  return riseCuts(g, balls.rise, balls.radius.map((r) => 2 * Math.max(r, 0.5)), surface.v);
+}
+
+/** Cross-sections where a squared height `base` (before the volume scale `v`) reaches a level; `over` makes the field about a distance. */
+function riseCuts(g: Grid, base: Float64Array, over: Float64Array, v: number): LevelCut {
+  const { nx, ny } = g;
   const values = new Float64Array(nx * ny);
   const field = { values, nx, ny, x0: g.x0, y0: g.y0, step: g.step };
   const rise = runRange(base, nx, ny), edge = runRange(g.sd, nx, ny);
@@ -525,6 +603,40 @@ function rimPoint(g: Grid, c0: number, c1: number, surface: Surface, sd: Float64
   return n + 2;
 }
 
+/**
+ * Top profile for the slab of grid rows r0..r1, as the plane at its row: loops in (x, z), symmetric
+ * in z. Each column takes the largest height across the slab; a run ends on the outline, at height 0.
+ */
+function rowLoops(g: Grid, r0: number, r1: number): Point[][] {
+  const loops: Point[][] = [];
+  const sd = new Float64Array(g.nx).fill(-Infinity), h = new Float64Array(g.nx);
+  for (let i = 0; i < g.nx; i++) {
+    for (let r = r0; r <= r1; r++) {
+      const k = r * g.nx + i;
+      if (g.sd[k] > sd[i]) sd[i] = g.sd[k];
+      if (g.sd[k] > 0 && g.h[k] > h[i]) h[i] = g.h[k];
+    }
+  }
+  let i = 0;
+  while (i < g.nx) {
+    if (sd[i] <= 0) { i++; continue; }
+    const i0 = i;
+    while (i < g.nx && sd[i] > 0) i++;
+    const i1 = i - 1;
+    const x = (k: number) => g.x0 + k * g.step;
+    const top: Point[] = [];
+    top.push([i0 > 0 ? x(i0) - (g.step * sd[i0]) / (sd[i0] - sd[i0 - 1]) : x(i0), 0]);
+    let high = 0;
+    for (let k = i0; k <= i1; k++) { top.push([x(k), h[k]]); high = Math.max(high, h[k]); }
+    top.push([i1 < g.nx - 1 ? x(i1) + (g.step * sd[i1]) / (sd[i1] - sd[i1 + 1]) : x(i1), 0]);
+    if (high < 0.05) continue;
+    const loop = top.slice();
+    for (let k = top.length - 2; k >= 1; k--) loop.push([top[k][0], -top[k][1]]);
+    loops.push(loop);
+  }
+  return loops;
+}
+
 /** Depth levels in (flat, flat + round): even in angle over the rounded part of the profile. */
 function levels(flat: number, round: number, steps: number): number[] {
   const out: number[] = [];
@@ -536,16 +648,24 @@ function levels(flat: number, round: number, steps: number): number[] {
 export function buildVolume(def: AvatarDefinition, volume = 1, body: BodyAnalysis = analyzeBody(def.body.path)): Volume {
   const outlines = body.subpaths.filter((s) => !s.hole);
   const holes = body.subpaths.filter((s) => s.hole);
-  const v = Number.isFinite(volume) ? Math.max(0, volume) : 1;
+  const whole = Number.isFinite(volume) ? Math.max(0, volume) : 1;
   const xAxis = revolveAxis(body);
 
-  const parts: VolumePart[] = outlines.map((o) => {
+  // A character's limbs and head are as deep as they are wide; what they hang off (its torso and
+  // neck, the parts without a joint) is flatter front to back, as a body is.
+  const jointed = def.rig?.length ? new Set(def.rig.map((j) => j.part)) : null;
+  // Its limbs (every jointed part but the head and what the head wears) are round all the way along.
+  const limbs = new Set(def.rig?.filter((j) => j.role !== 'head').map((j) => j.part));
+
+  const parts: VolumePart[] = outlines.map((o, part) => {
+    const v = whole * (jointed && !jointed.has(part) ? TRUNK_DEPTH : 1);
     const cuts = holes.filter((h) => h.probe && isInside(o.polys, h.probe[0], h.probe[1]));
     const polys = [...o.polys, ...cuts.flatMap((h) => h.polys)];
     const b = bounds(o.polys);
     const center: Point = [(b.minX + b.maxX) / 2, (b.minY + b.maxY) / 2];
     const minDim = Math.min(b.maxX - b.minX, b.maxY - b.minY);
-    const step = Math.max(0.25, Math.min(0.45, minDim / 24));
+    const limb = limbs.has(part);
+    const step = limb ? LIMB_STEP : Math.max(0.25, Math.min(0.45, minDim / 24));
 
     // Classify: shared horizontal axis, own vertical axis (multi-part bodies only), or inflated.
     let kind: PartKind = 'inflate';
@@ -560,7 +680,16 @@ export function buildVolume(def: AvatarDefinition, volume = 1, body: BodyAnalysi
 
     const index = new EdgeIndex(polys, b);
     let thickness: number, depth: number, rxy = 0, rz = 0, axis = 0;
-    if (kind === 'inflate' || !profile) {
+    let round = v;
+    let grid: Grid | null = null, balls: Balls | undefined;
+    if (kind === 'inflate' && limb) {
+      kind = 'tube';
+      grid = sampleGrid(polys, b, step, index, true);
+      balls = tubeBalls(grid);
+      thickness = 2 * Math.max(0, ...balls.radius);
+      round = Math.min(v, 1);
+      depth = thickness * round;
+    } else if (kind === 'inflate' || !profile) {
       thickness = gridThickness(polys, b, Math.max(step, 0.6), index);
       depth = partDepth(thickness, b, v);
       rxy = Math.min(thickness / 2, depth / 2) * 0.9;
@@ -569,9 +698,12 @@ export function buildVolume(def: AvatarDefinition, volume = 1, body: BodyAnalysi
       axis = kind === 'revolve-x' ? (xAxis as number) : center[0];
       const radius = Math.max(...profile.r);
       thickness = 2 * radius;
-      depth = 2 * radius * v;
+      // A part turned about its axis is as deep as it is wide and no deeper: past that a ball
+      // becomes a sausage and a cup a trough. Less volume still flattens it.
+      round = Math.min(v, 1);
+      depth = 2 * radius * round;
     }
-    const surface: Surface = { kind, fillet: { depth, rxy, rz }, profile, axis, v };
+    const surface: Surface = { kind, fillet: { depth, rxy, rz }, profile, axis, v: round, balls };
     const filled = edgeBands(polys);
     const height = (x: number, y: number) =>
       filled.winding(x, y) !== 0 ? surfaceHeight(surface, x, y, kind === 'inflate' ? index.distance(x, y) : 0) : 0;
@@ -582,16 +714,19 @@ export function buildVolume(def: AvatarDefinition, volume = 1, body: BodyAnalysi
     };
     const zSlices: VolumeSlice[] = [core];
     const xSlices: VolumeSlice[] = [];
+    const ySlices: VolumeSlice[] = [];
     const half = depth / 2;
     if (half > 0.05) {
-      const g = sampleGrid(polys, b, step, index);
+      const g = grid ?? sampleGrid(polys, b, step, index, limb);
       sampleHeights(g, surface);
       const steps = kind === 'inflate'
         ? Math.max(4, Math.min(14, Math.round(rz / 0.8)))
         : Math.max(5, Math.min(18, Math.round(half / 1.1)));
       // Inflated parts keep a straight wall up to half - rz; one slice at its end carries it.
-      const ls = kind === 'inflate' ? [half - rz, ...levels(half - rz, rz, steps)] : levels(0, half, steps);
-      const cut = kind === 'inflate' ? insetCuts(g, surface.fillet) : revolveCuts(g, surface);
+      const ls = kind === 'inflate' ? [half - rz, ...levels(half - rz, rz, steps)]
+        : limb ? Array.from({ length: Math.floor(half / (LIMB_LEVEL * round) - 0.2) }, (_, k) => (k + 1) * LIMB_LEVEL * round)
+        : levels(0, half, steps);
+      const cut = kind === 'inflate' ? insetCuts(g, surface.fillet) : kind === 'tube' ? tubeCuts(g, surface) : revolveCuts(g, surface);
       const addLevel = (level: number, box?: CellBox) => {
         const loops = cut(level, box);
         if (!loops.length) return false;
@@ -616,19 +751,27 @@ export function buildVolume(def: AvatarDefinition, volume = 1, body: BodyAnalysi
       zSlices.sort((m, n) => m.at - n.at);
 
       const width = b.maxX - b.minX;
-      const every = Math.max(1, Math.round(Math.max(1.1, width / MAX_X_SLICES) / g.step));
+      const every = limb ? LIMB_EVERY : Math.max(1, Math.round(Math.max(1.1, width / MAX_X_SLICES) / g.step));
       // One plane per `every` grid columns, standing for the whole slab around it.
       const before = Math.floor((every - 1) / 2);
-      for (let i = 1; i < g.nx - 1; i += every) {
+      const first = limb ? 1 + ((every - ((Math.round(g.x0 / g.step) + 1) % every)) % every + every) % every : 1;
+      for (let i = first; i < g.nx - 1; i += every) {
         const loops = columnLoops(g, Math.max(0, i - before), Math.min(g.nx - 1, i - before + every - 1), surface);
         if (loops.length) xSlices.push({ axis: 'x', at: g.x0 + i * g.step, d: loopsToPath(loops), loops, evenOdd: true, box: loopBox(loops), inset: 0 });
+      }
+      if (limb) {
+        const start = 1 + ((every - ((Math.round(g.y0 / g.step) + 1) % every)) % every + every) % every;
+        for (let j = start; j < g.ny - 1; j += every) {
+          const loops = rowLoops(g, Math.max(0, j - before), Math.min(g.ny - 1, j - before + every - 1));
+          if (loops.length) ySlices.push({ axis: 'y', at: g.y0 + j * g.step, d: loopsToPath(loops), loops, evenOdd: true, box: loopBox(loops), inset: 0 });
+        }
       }
     }
 
     return {
       kind, d: core.d, polys, bounds: b, center, thickness, depth, rxy, rz,
       axis: kind === 'revolve-x' ? (xAxis as number) : kind === 'revolve-y' ? center[0] : undefined,
-      zSlices, xSlices, height,
+      zSlices, xSlices, ...(limb ? { ySlices } : {}), height,
     };
   });
 

@@ -1,14 +1,19 @@
 import type { AvatarDefinition } from "open-bot-avatar";
 
-/** The project's logo: an amber cat. scripts/icons.ts renders the favicon and README icon from it. */
+/** The site's logo: the Elemental gem, in Docebo pink. */
 export const LOGO: AvatarDefinition = {
-  version: 1,
-  id: "cat",
-  name: "Cat",
-  body: {
-    path: "M50 23C68 23 82 30 82 45C82 58 68 65 50 65C32 65 18 58 18 45C18 30 32 23 50 23ZM24 42C21 32 20 22 22 15C23 11 26 10 29 12C34 16 39 21 44 28L36 42ZM64 42L56 28C61 21 66 16 71 12C74 10 77 11 78 15C80 22 79 32 76 42ZM38 56L62 56C70 56 74 66 74 76C74 83 70 86 63 86L37 86C30 86 26 83 26 76C26 66 30 56 38 56ZM70 72C77 74 81 70 80 64C79 60 81 57 84 58C87 59 88.5 63 88 68C87 77 80 83 70 81Z",
+  "version": 1,
+  "id": "gem",
+  "name": "Gem",
+  "body": {
+    "path": "M29.8 15.9Q33 12 38 12L62 12Q67 12 70.2 15.9L86.8 36.1Q90 40 88.5 44.8L80.5 71.2Q79 76 74.6 78.3L54.4 88.7Q50 91 45.6 88.7L25.4 78.3Q21 76 19.5 71.2L11.5 44.8Q10 40 13.2 36.1Z"
   },
-  eyes: { x: 50, y: 43, spacing: 17, scale: 1.1 },
+  "eyes": {
+    "x": 50,
+    "y": 46,
+    "spacing": 18,
+    "scale": 1.2
+  }
 };
 
-export const LOGO_COLOR = "#f8a01c";
+export const LOGO_COLOR = "#ff5dd8";

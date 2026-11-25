@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { DEFAULT_COLOR, examples, validateAvatar, type AvatarDefinition } from "open-bot-avatar";
 import { GALLERY, findGallery } from "./gallery";
+import { DOCEBO_IDS } from "../../../packages/docebo-avatars/src/sets";
 import { Actions } from "./studio/Actions";
 import { BotPanel, type LibraryEntry } from "./studio/BotPanel";
 import { CreatePanel } from "./studio/CreatePanel";
 import { usePrefersReducedMotion, useStoredState } from "./studio/hooks";
 import { ImportPanel } from "./studio/ImportPanel";
-import { DEFAULT_LOOK, PALETTE, colorOf, defaultColor, reviveLook, withColor, type LookState } from "./studio/look";
+import { DEFAULT_LOOK, colorOf, reviveLook, volumeOf, withColor, type LookState } from "./studio/look";
 import { readShare } from "./studio/share";
 import { Settings } from "./studio/Settings";
 import { Stage, type ViewAngle } from "./studio/Stage";
@@ -41,14 +42,13 @@ const GALLERY_ENTRIES: LibraryEntry[] = GALLERY.map((definition) => ({
 }));
 
 /**
- * The starters and the gallery together, by their own color in the color bar's order (white, brown,
- * red … gray), then by name; a color outside the palette goes last. Picking another color for one
- * doesn't move it.
+ * The starters and the gallery together: the Docebo sets first, in their own order (agents,
+ * characters, Elemental, objects), then everything else by name.
  */
 function byColor(entries: LibraryEntry[]): LibraryEntry[] {
   const rank = (entry: LibraryEntry) => {
-    const i = PALETTE.findIndex((s) => s.value === defaultColor(entry.definition.id));
-    return i < 0 ? PALETTE.length : i;
+    const i = entry.source === "gallery" ? DOCEBO_IDS.indexOf(entry.definition.id) : -1;
+    return i < 0 ? DOCEBO_IDS.length : i;
   };
   return [...entries].sort((a, b) => rank(a) - rank(b) || a.definition.name.localeCompare(b.definition.name));
 }
@@ -178,6 +178,7 @@ export function Studio() {
         <Stage
           definition={selected.definition}
           color={color}
+          {...volumeOf(look, selected.definition.id)}
           state={look.state}
           mood={look.mood}
           followCursor={look.followCursor}
@@ -185,8 +186,7 @@ export function Studio() {
           reduced={reduced}
           view={view}
           onView={setView}
-          onState={(state) => patchLook({ state })}
-          onMood={(mood) => patchLook({ mood })}
+          onLook={patchLook}
         >
           <Actions entry={selected} color={color} state={look.state} mood={look.mood} onRemove={removeEntry} />
         </Stage>

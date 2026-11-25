@@ -14,8 +14,26 @@ An avatar definition contains geometry only. The runtime controls color, inferre
 
 - Coordinates use a fixed `0 0 100 100` viewBox.
 - `body.path` is one monochrome filled SVG path (several closed subpaths allowed, nonzero fill rule; holes wind opposite to their outline). Keep it roughly within 8..92 so there is room for turning and motion. No embedded SVG markup, scripts, external assets, colors or animation.
-- `eyes`: `x`/`y` are the center of the pair, `spacing` is center to center, and `scale` 1 means each neutral eye is about 4 units wide and 11 tall. Validation uses that size; the renderer draws eyes up to 1.45× larger where the body has room (every drawn eye shape keeps 3 units from the outline). Eyes must sit visibly inside the body.
-- `id` is a lowercase slug, `name` a short display name. Unknown fields are rejected.
+- `eyes`: `x`/`y` are the center of the pair, `spacing` is center to center, and `scale` 1 reserves a pill about 4 units wide and 11 tall for each eye. Validation uses that size; the renderer draws the open eye inside it as a glossy oval, about 6 wide and 9 tall, with a shadow round it and highlights on it (a happy eye is the top of that oval with its lower lid pushed up, a waiting one the bottom of it under a half-lowered lid), and up to 1.45× larger where the body has room (every drawn eye shape keeps 3 units from the outline). Eyes must sit visibly inside the body.
+- `id` is a lowercase slug, `name` a short display name. Unknown fields are rejected; `rig` is the one optional field (below).
+
+## Rig (optional)
+
+A character with limbs can add `rig`: a list of joints, each naming one outline of `body.path` and the point it turns about.
+
+```json
+"rig": [
+  { "part": 0, "role": "head", "x": 50, "y": 37 },
+  { "part": 2, "role": "arm-l", "x": 38.8, "y": 42.5 },
+  { "part": 3, "role": "forearm-l", "x": 35, "y": 52.5 }
+]
+```
+
+- `part` is the index of an outline in `body.path`, in path order, not counting holes. Each part has at most one joint; parts without one (the torso) stay put. At most 24 joints.
+- `role` is one of `head`, `arm-l`, `arm-r`, `forearm-l`, `forearm-r`, `leg-l`, `leg-r`, `shin-l`, `shin-r` (`-l` and `-r` are the left and right of the screen). A forearm moves with the arm of its side and a shin with the leg. Several parts may share a role: a shoe takes its shin's role and joint, a hat the head's.
+- `x`, `y` is the joint, in viewBox units. Draw limbs hanging down at rest.
+
+A rigged avatar acts its states out with its body (chin in hand while thinking, a shrug when blocked) and keeps its body where other avatars give way to the thinking dots or the blocked mark. The canvas and SVG renderers move the limbs; the CSS scene renderer draws them at rest.
 
 Before rendering imported definitions, call `validateAvatar`. It returns `{ ok: true, value }` with the normalized definition or `{ ok: false, errors }` with validation errors.
 

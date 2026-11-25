@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "id": "elemental-hills",
+  "name": "Hills",
+  "body": {
+    "path": "M8 80C8 56 20 44 34 44C40 44 45 46 49 50C52 32 60 22 70 22C84 22 92 40 92 80Q92 88 84 88H16Q8 88 8 80Z"
+  },
+  "eyes": {
+    "x": 66,
+    "y": 62,
+    "spacing": 16,
+    "scale": 1.05
+  }
+}

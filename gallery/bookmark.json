@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "id": "bookmark",
+  "name": "Bookmark",
+  "body": {
+    "path": "M26 10H74Q82 10 82 18V84Q82 92 75 87L50 70L25 87Q18 92 18 84V18Q18 10 26 10Z"
+  },
+  "eyes": {
+    "x": 50,
+    "y": 38,
+    "spacing": 18,
+    "scale": 1.2
+  }
+}

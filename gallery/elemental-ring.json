@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "id": "elemental-ring",
+  "name": "Ring",
+  "body": {
+    "path": "M10 50A40 40 0 0 1 90 50A40 40 0 0 1 10 50ZM41 27A9 9 0 1 0 59 27A9 9 0 1 0 41 27Z"
+  },
+  "eyes": {
+    "x": 50,
+    "y": 62,
+    "spacing": 18,
+    "scale": 1.15
+  }
+}

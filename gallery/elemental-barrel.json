@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "id": "elemental-barrel",
+  "name": "Barrel",
+  "body": {
+    "path": "M24 20Q50 10 76 20C84 40 84 60 76 80Q50 90 24 80C16 60 16 40 24 20Z"
+  },
+  "eyes": {
+    "x": 50,
+    "y": 48,
+    "spacing": 17,
+    "scale": 1.15
+  }
+}

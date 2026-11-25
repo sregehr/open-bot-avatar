@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "id": "folder",
+  "name": "Folder",
+  "body": {
+    "path": "M14 30Q14 22 22 22H40Q45 22 48 26L51 30H78Q86 30 86 38V76Q86 84 78 84H22Q14 84 14 76Z"
+  },
+  "eyes": {
+    "x": 50,
+    "y": 57,
+    "spacing": 18,
+    "scale": 1.2
+  }
+}

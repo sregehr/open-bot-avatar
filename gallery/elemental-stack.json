@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "id": "elemental-stack",
+  "name": "Stack",
+  "body": {
+    "path": "M29 46H71Q80 46 80 55V81Q80 90 71 90H29Q20 90 20 81V55Q20 46 29 46ZM30 30A20 20 0 0 1 70 30A20 20 0 0 1 30 30Z"
+  },
+  "eyes": {
+    "x": 50,
+    "y": 67,
+    "spacing": 17,
+    "scale": 1.15
+  }
+}

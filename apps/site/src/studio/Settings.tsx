@@ -1,4 +1,4 @@
-import type { LookState, MotionPreference } from "./look";
+import type { LookState, MotionPreference, Volume } from "./look";
 import { Icon, Segmented, Switch, usePopover } from "./ui";
 
 /** The less-used settings behind a gear at the right of the tabs: following the cursor, and motion. */
@@ -23,6 +23,26 @@ export function Settings({ look, systemReduced, onLook }: { look: LookState; sys
           <span className="settings-title">Settings</span>
           <div className="settings-row">
             <Switch label="Eyes follow cursor" hint="The live avatar looks at your pointer." checked={look.followCursor} onChange={(followCursor) => onLook({ followCursor })} />
+          </div>
+          <div className="settings-row">
+            <Switch label="3D shading" hint="Shade the volume from front to back." checked={look.shaded} onChange={(shaded) => onLook({ shaded })} />
+          </div>
+          <div className="settings-row settings-stack">
+            <span className="settings-label" id="settings-volume">
+              Volume
+              <small>How deep the avatars are.</small>
+            </span>
+            <Segmented<Volume>
+              label="Volume"
+              size="sm"
+              value={look.volume}
+              options={[
+                { value: "flat", label: "Flat" },
+                { value: "natural", label: "Natural" },
+                { value: "deep", label: "Deep" },
+              ]}
+              onChange={(volume) => onLook({ volume })}
+            />
           </div>
           <div className="settings-row settings-stack">
             <span className="settings-label" id="settings-motion">

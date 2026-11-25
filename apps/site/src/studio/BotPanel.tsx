@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import type { AvatarDefinition } from "open-bot-avatar";
 import { BotAvatar } from "../BotAvatar";
-import { PALETTE, colorOf, defaultColor, type LookState } from "./look";
+import { PALETTE, colorOf, defaultColor, volumeOf, type LookState } from "./look";
 import { THUMB_LOOK, THUMB_VIEW, outlineSvg } from "./outline";
 import { Icon } from "./ui";
 
@@ -78,6 +78,7 @@ export function BotPanel({ entries, selected, look, color, onSelect, onColor, on
                       definition={entry.definition}
                       color={colorOf(look, entry.key, entry.definition.id)}
                       still
+                      {...volumeOf(look, entry.definition.id)}
                       view={THUMB_VIEW}
                       lookAt={THUMB_LOOK}
                       label=""

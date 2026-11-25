@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "id": "elemental-quarter",
+  "name": "Quarter",
+  "body": {
+    "path": "M14 86V22Q14 14 22 14A64 64 0 0 1 86 78Q86 86 78 86Z"
+  },
+  "eyes": {
+    "x": 40,
+    "y": 62,
+    "spacing": 16,
+    "scale": 1.05
+  }
+}
