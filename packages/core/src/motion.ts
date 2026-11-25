@@ -113,6 +113,11 @@ export function resolveLook(given: { state?: unknown; mood?: unknown; motion?: u
 export const BASE_YAW = -0.3;
 export const BASE_PITCH = 0.2;
 /**
+ * The share of the resting view a rigged character keeps: on a figure with legs, the full turn
+ * and the view from above read as leaning back and to one side, so it stands nearly square on.
+ */
+const STAND = 0.35;
+/**
  * Following a look target: the body turns toward it by up to these angles
  * (radians, at full deflection) and the eyes use this share of their small
  * range, so the whole character looks rather than the eyes sliding alone.
@@ -265,6 +270,11 @@ const DONE_SWEEPS = 9;
  * about 0.9 rad/s, 3.37 s in, and are gone at DONE_TURN_S.
  */
 const DONE_DRAW_IN_S = 0.5;
+/** How long the eyes take to turn happy once the turn is over, and to open again as the next begins, seconds. */
+const DONE_SMILE_S = 0.4;
+
+/** How long a thinking bot's eyes take to go from one side to the other and back, seconds. */
+const THINK_LOOK_S = 4.8;
 
 /**
  * A working bot gets on with it and every so often throws itself into the work: a band of
@@ -365,9 +375,13 @@ function actOut(L: Limbs, c: { state: AvatarState; mood: AvatarMood; seed: numbe
     L.armLz = 4;
     L.armR = 36;
     L.foreR = -100;
-    L.head = -3 + 1.5 * wave(4.1);
-    L.legL = 3;
-    L.legR = 1.5 * wave(5.2);
+    L.head = 1.2 * wave(4.1);
+    // Its weight on one leg, straight under it; the other set out to the side, that foot tapping.
+    const foot = reducedMotion ? 0 : Math.max(0, Math.sin((TAU * t) / 0.78)) ** 2;
+    L.legL = 0;
+    L.legR = 7;
+    L.legRs = 8 + 9 * foot;
+    L.shinR = -3 - 10 * foot;
   } else if (state === 'working') {
     // Elbows out and hands busy, pumping one after the other, with a nod to the beat. The swing
     // toward the viewer stays small: a part turned far out of the plane shows its cross-sections.
@@ -389,7 +403,7 @@ function actOut(L: Limbs, c: { state: AvatarState; mood: AvatarMood; seed: numbe
     const tap = reducedMotion ? 0 : Math.max(0, Math.sin((TAU * t) / 0.62)) ** 2;
     L.armL = L.armR = 36 - 6 * sigh;
     L.foreL = L.foreR = -98 + 5 * sigh;
-    L.head = 6 + 1.5 * wave(6.4, 2);
+    L.head = 3 + 1.5 * wave(6.4, 2);
     L.legR = 6;
     L.legRs = 8 + 9 * tap;
     L.shinR = -10 * tap;
@@ -455,8 +469,9 @@ function statePose(input: PoseInput): Pose {
   // While it attends to a target the body holds its aim: idle sway of the turn settles to a trace.
   const sway = 1 - 0.7 * weight;
 
+  const baseYaw = BASE_YAW * (input.rigged ? STAND : 1), basePitch = BASE_PITCH * (input.rigged ? STAND : 1);
   const pose: Pose = {
-    yaw: BASE_YAW, pitch: BASE_PITCH, roll: 0, lift: 0, sx: 1, sy: 1,
+    yaw: baseYaw, pitch: basePitch, roll: 0, lift: 0, sx: 1, sy: 1,
     gazeX: 0, gazeY: 0, blink: 0, squintL: 0, squintR: 0,
     eyes: { arc: mood === 'happy' ? 1 : 0, slit: 0 }, ribbons: 0, cage: 0, sweep: 0, bang: 0, dots: 0,
     limbs: limbsAtRest(),
@@ -488,15 +503,22 @@ function statePose(input: PoseInput): Pose {
     pose.roll = 4.5 * wave(period * 2);
     pose.yaw += 0.1 * wave(period * 2, 0.6);
   } else if (state === 'thinking') {
-    // Looks up and away while it gives way to the three dots.
-    pose.yaw += 0.12 + 0.05 * sway * wave(7.3);
-    pose.pitch += 0.08;
-    pose.roll = -5 + 1.4 * wave(4.1);
+    // Looks up and away while it gives way to the three dots. A character stands straight, its
+    // weight over one leg (see actOut): no turn or tilt of the body, only a slow sway.
+    const upright = input.rigged ? 0 : 1;
+    pose.yaw += upright * 0.12 + 0.05 * sway * wave(7.3);
+    pose.pitch += upright * 0.08;
+    pose.roll = upright * -5 + (input.rigged ? 0.6 : 1.4) * wave(4.1);
     pose.lift = -0.5 * (1 - Math.cos((TAU * t) / 5.2)) * live;
-    pose.gazeX = 0.55 + 0.3 * wave(5.6);
-    pose.gazeY = -0.8;
-    pose.squintL = 0.22;
-    pose.squintR = 0.32 + 0.1 * wave(3.1);
+    // Deep in thought: the eyes go up to one side, rest there, then cross to the other and rest
+    // again. The eye on the side they look to narrows a little, so the squint passes from one
+    // eye to the other and back.
+    const swing = wave(THINK_LOOK_S);
+    const side = reducedMotion ? 1 : swing / Math.sqrt(swing * swing + 0.05);
+    pose.gazeX = 0.1 + 0.42 * side;
+    pose.gazeY = -0.7 + 0.08 * (1 - side * side);
+    pose.squintL = 0.2 + 0.6 * Math.max(0, -side);
+    pose.squintR = 0.2 + 0.6 * Math.max(0, side);
     if (!reducedMotion) pose.blink = blinkAt(seed, t * 0.7);
     pose.dots = 1;
   } else if (state === 'working') {
@@ -544,7 +566,8 @@ function statePose(input: PoseInput): Pose {
     const sigh = Math.sin(TAU * clamp(p / 0.33, 0, 1));
     pose.yaw += 0.04 * sway * wave(7.4);
     pose.pitch += 0.02 + 0.03 * sigh;
-    pose.roll = 7 + 1.2 * wave(6.4, 2);
+    // A character keeps most of the lean out of its body: it stands on its legs, with its head a little to one side.
+    pose.roll = (input.rigged ? 1.5 : 7) + 1.2 * wave(6.4, 2);
     pose.lift = -0.3 * (1 - Math.cos((TAU * t) / 6.5)) * live;
     pose.sy = 1 + 0.025 * sigh;
     pose.sx = 1 - 0.012 * sigh;
@@ -562,9 +585,16 @@ function statePose(input: PoseInput): Pose {
     // slower than idle, and after a while again, the other way round.
     rest(1.25);
     // Counted from when the state began. Without an age it is at rest.
-    const age = !reducedMotion && Number.isFinite(input.stateAge) ? Math.max(0, input.stateAge as number) : DONE_TURN_S;
+    const aged = !reducedMotion && Number.isFinite(input.stateAge);
+    const age = aged ? Math.max(0, input.stateAge as number) : DONE_TURN_S;
     const length = DONE_CYCLE_S * (1 + 0.15 * noise(seed, 31));
     const cycle = Math.floor(age / length), since = age - cycle * length;
+    // Once the turn is over it is pleased with itself: the eyes ease into their happy arcs for the
+    // rest, and open again as the next turn sets off. Drawn at rest, it is smiling.
+    const glad = !aged ? 1
+      : since >= DONE_TURN_S ? smooth((since - DONE_TURN_S) / DONE_SMILE_S)
+      : cycle > 0 ? 1 - smooth(since / DONE_SMILE_S) : 0;
+    pose.eyes.arc = Math.max(pose.eyes.arc, glad);
     if (since < DONE_TURN_S) {
       const swell = Math.sin((Math.PI * since) / DONE_TURN_S);
       const way = cycle % 2 ? -1 : 1;
@@ -601,8 +631,8 @@ function statePose(input: PoseInput): Pose {
     pose.gazeY = mix(pose.gazeY, given[1] * share, follow);
     if (!reducedMotion) {
       // Positive yaw turns the front to the right, positive pitch tips it up.
-      pose.yaw += weight * (given[0] * LOOK_YAW - BASE_YAW);
-      pose.pitch += weight * (-given[1] * LOOK_PITCH - BASE_PITCH / 2);
+      pose.yaw += weight * (given[0] * LOOK_YAW - baseYaw);
+      pose.pitch += weight * (-given[1] * LOOK_PITCH - basePitch / 2);
     }
   }
   if (view && Number.isFinite(view.yaw) && Number.isFinite(view.pitch)) {

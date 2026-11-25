@@ -4,7 +4,7 @@ import { createAnimator } from '../src/animator.ts';
 import { parseHex, toOklch, type Rgb } from '../src/color.ts';
 import { ribbonPieces, ribbonReach } from '../src/effects.ts';
 import { examples, getExample } from '../src/examples.ts';
-import { DONE_CYCLE_S, DONE_TURN_S, MOODS, STATES, blendPoses, computePose, hashString, resolveLook } from '../src/motion.ts';
+import { DONE_CYCLE_S, DONE_TURN_S, MOODS, STATES, blendPoses, computePose, hashString, noise, resolveLook } from '../src/motion.ts';
 
 const TAU = 2 * Math.PI;
 import { MOOD_MS } from '../src/mood.ts';
@@ -405,7 +405,7 @@ describe('done', () => {
 
   it('celebrates as it begins: a few turns with more ribbons than a working bot has, then a rest', () => {
     expect(resting.ribbons).toBe(0);
-    expect(computePose({ ...base, stateAge: DONE_CYCLE_S - 0.01 })).toEqual(computePose({ ...base, stateAge: DONE_TURN_S }));
+    expect(computePose({ ...base, stateAge: DONE_CYCLE_S - 0.01 })).toEqual(resting);
     // Without an age it is at rest.
     expect(computePose(base)).toEqual(resting);
     const mid = computePose({ ...base, stateAge: DONE_TURN_S / 2 });
@@ -422,6 +422,24 @@ describe('done', () => {
     expect(turned / (2 * Math.PI)).toBeCloseTo(3, 1);
     // It winds up the other way first.
     expect(computePose({ ...base, stateAge: 0.15 }).yaw).toBeLessThan(resting.yaw);
+  });
+
+  it('turns its eyes happy once the turn is over, and opens them again for the next', () => {
+    const arc = (stateAge?: number) => computePose({ ...base, stateAge }).eyes.arc;
+    // Plain eyes all through the first turn, arcs easing in as it ends.
+    for (const age of [0, 1, DONE_TURN_S - 0.01, DONE_TURN_S]) expect(arc(age)).toBe(0);
+    expect(arc(DONE_TURN_S + 0.2)).toBeGreaterThan(0);
+    expect(arc(DONE_TURN_S + 0.2)).toBeLessThan(1);
+    expect(resting.eyes.arc).toBe(1);
+    // No jump where a cycle wraps round: the arcs open over the start of the next turn.
+    const length = DONE_CYCLE_S * (1 + 0.15 * noise(5, 31));
+    expect(arc(length - 0.001)).toBe(1);
+    expect(arc(length + 0.001)).toBeCloseTo(1, 3);
+    expect(arc(length + 1)).toBe(0);
+    // Drawn at rest it is smiling, under reduced motion too; a happy bot keeps its arcs throughout.
+    expect(arc()).toBe(1);
+    expect(computePose({ ...base, reducedMotion: true, stateAge: 1 }).eyes.arc).toBe(1);
+    expect(computePose({ ...base, mood: 'happy', stateAge: 1 }).eyes.arc).toBe(1);
   });
 
   it('celebrates again after a rest, the other way round, at a pace of its own', () => {
